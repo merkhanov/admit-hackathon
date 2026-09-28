@@ -3,6 +3,9 @@ import type { ScoreEntry } from '../app/leaderboard.ts';
 import type { PartAccuracy } from '../app/summary.ts';
 import { RATING_NAMES, type Rating } from '../dance/dance.ts';
 import { MOVES, type MoveId } from '../dance/moves.ts';
+import { DEFAULT_SONG_ID, SONG_IDS, SONG_META, type SongId } from '../dance/songs.ts';
+import { loadPlayerName, savePlayerName } from '../multiplayer/persistence.ts';
+import { mp, setSong, sharedPodium } from '../main.ts';
 import { pictogramSvg } from './pictogram.ts';
 
 export interface RoundResult {
@@ -32,6 +35,142 @@ const starRow = (n: number) => `<div class="star-row">${Array.from({ length: 5 }
 
 const SHOWCASE: readonly MoveId[] = ['wings', 'discoL', 'muscles', 'leanL'];
 
+/** 6-char room code: Math.random base36 upper, without ambiguous 0/O/1/I. */
+const ROOM_OK = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+function makeRoomCode(): string {
+  let out = '';
+  while (out.length < 6) {
+    const chunk = Math.random().toString(36).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    for (const ch of chunk) {
+      if (out.length >= 6) break;
+      if (ROOM_OK.includes(ch)) out += ch;
+    }
+  }
+  return out;
+}
+
+const mpStatusRu = (s: string): string => s === 'dancing' ? 'танцует' : s === 'done' ? 'готов' : 'в лобби';
+
+function selectedSong(songTitle: string): SongId {
+  try {
+    const sid = mp.getState().songId;
+    if (sid) return sid;
+  } catch { /* lobby without mp: fall back to title */
+  }
+  for (const id of SONG_IDS) {
+    if (SONG_META[id].title === songTitle) return id;
+  }
+  return DEFAULT_SONG_ID;
+}
+
+function songCardsHtml(current: SongId, interactive: boolean): string {
+  return `
+  <div class="song-cards">
+    ${SONG_IDS.map((id) => {
+      const meta = SONG_META[id];
+      const sel = id === current ? ' selected' : '';
+      const stars = '★'.repeat(meta.difficulty) + '☆'.repeat(5 - meta.difficulty);
+      const inner = `<strong>${esc(meta.title)}</strong><span>${meta.bpm} BPM</span><span class="song-diff">${stars}</span>`;
+      return interactive
+        ? `<button type="button" class="song-card${sel}" data-song-id="${id}">${inner}</button>`
+        : `<div class="song-card${sel}" data-song-id="${id}">${inner}</div>`;
+    }).join('')}
+  </div>`;
+}
+
+function lobbyHtml(songTitle: string, showJoin: boolean): string {
+  let saved: string | null = null;
+  try { saved = loadPlayerName(); } catch { saved = null; }
+  let roomId: string | null = null;
+  let players: { id: string; name: string; isHost: boolean; status: string }[] = [];
+  let isHost = false;
+  let songId: SongId = DEFAULT_SONG_ID;
+  try {
+    const st = mp.getState();
+    roomId = st.roomId;
+    players = Object.values(st.players);
+    isHost = st.isHost;
+    songId = st.songId ?? selectedSong(songTitle);
+  } catch {
+    songId = selectedSong(songTitle);
+  }
+  const count = players.length;
+  const full = count >= 4;
+
+  const nameBlock = saved
+    ? `<p class="muted">Вы: <strong>${esc(saved)}</strong></p>`
+    : `<div class="lobby-name">
+        <label for="lobby-name-input">Ваше имя</label>
+        <input id="lobby-name-input" type="text" maxlength="24" placeholder="Введите имя" autocomplete="off" />
+        <button id="lobby-save-name" class="cta" type="button">Сохранить</button>
+        <p class="muted">Имя сохраняется на этом устройстве.</p>
+      </div>`;
+
+  const roomBlock = roomId
+    ? `<div class="room-code-wrap"><span>Код комнаты:</span><strong class="room-code">${esc(roomId)}</strong></div>
+       <button id="lobby-leave" type="button" class="link-btn">Покинуть</button>`
+    : `<div class="lobby-actions">
+        <button id="lobby-create" class="cta" type="button">Создать комнату</button>
+        <button id="lobby-join-toggle" class="cta" type="button">Присоединиться по коду</button>
+      </div>
+      ${showJoin ? `<div class="lobby-join">
+        <input id="lobby-join-code" type="text" maxlength="6" placeholder="Код комнаты" autocomplete="off" />
+        <button id="lobby-join" class="cta" type="button"${full ? ' disabled' : ''}>Войти</button>
+      </div>` : ''}
+      ${full ? '<p class="muted">Комната заполнена (4/4).</p>' : ''}`;
+
+  const playersBlock = roomId
+    ? `<h3>Игроки · ${count}/4</h3>
+      ${count === 0 ? '<p class="muted">Пока никого нет.</p>' : `<ul class="lobby-players">
+        ${players.map((p) => `<li><span>${esc(p.name)}</span>${p.isHost ? '<em class="host-badge">Хост</em>' : ''}<em>${esc(mpStatusRu(p.status))}</em></li>`).join('')}
+      </ul>`}`
+    : '';
+
+  const songsBlock = `
+    <h3>Песня</h3>
+    <p class="muted">${roomId ? (isHost ? 'Выберите песню для всех.' : 'Песню выбирает хост.') : 'Выберите песню.'}</p>
+    ${songCardsHtml(songId, !roomId || isHost)}`;
+
+  const startBlock = roomId
+    ? (isHost
+      ? `<button id="lobby-start" class="cta" type="button"${count < 1 ? ' disabled' : ''}>Начать танец</button>`
+      : '<p class="muted">Ожидание хоста...</p>')
+    : `<button id="start-btn" class="cta" type="button">Танцевать одному</button>
+       <p class="muted">Или создайте комнату для игры с друзьями.</p>`;
+
+  return `
+  <section class="screen center lobby">
+    <div class="over-card lobby-card">
+      <button id="lobby-menu" class="menu-x" type="button" aria-label="В главное меню" title="В главное меню">×</button>
+      <p class="eyebrow">Мультиплеер · до 4 игроков</p>
+      <h2>Лобби</h2>
+      ${nameBlock}
+      ${roomBlock}
+      ${playersBlock}
+      ${songsBlock}
+      ${startBlock}
+    </div>
+  </section>`;
+}
+
+function podiumHtml(): string {
+  const pod = sharedPodium;
+  if (!pod || pod.length < 2) return '';
+  const sorted = [...pod].sort((a, b) => a.place - b.place);
+  return `
+  <div class="mp-podium">
+    <h3>Общий зачёт</h3>
+    <ol class="podium">
+      ${sorted.map((e) => {
+        const s = Math.max(0, Math.min(5, e.stars));
+        return `<li class="${e.place === 1 ? 'winner' : ''}"><span class="pod-place">${e.place}</span><span class="pod-name">${esc(e.name)}</span><span class="pod-score">${e.score}</span><span class="pod-stars">${'★'.repeat(s)}${'☆'.repeat(5 - s)}</span></li>`;
+      }).join('')}
+    </ol>
+    <button id="lobby-again" class="cta" type="button">Танцевать снова</button>
+    <p class="muted">Хост вернёт всех в лобби.</p>
+  </div>`;
+}
+
 function introHtml(demo: boolean): string {
   return `
   <section class="screen intro">
@@ -58,6 +197,7 @@ const loadingHtml = () => `
     <h2>Загружаю распознавание движений</h2>
     <div class="load-bar" aria-hidden="true"><i id="load-bar"></i></div>
     <p class="muted" id="load-text">Разреши доступ к камере, если браузер спросит.</p>
+    <button id="loading-cancel" class="link-btn" type="button">Отмена</button>
   </section>`;
 
 const errorHtml = (message: string) => `
@@ -65,6 +205,7 @@ const errorHtml = (message: string) => `
     <h2>Камера не запустилась</h2>
     <p class="error-text">${esc(message)}</p>
     <button class="cta" id="retry-btn" type="button">Попробовать снова</button>
+    <button id="error-menu" class="link-btn" type="button">В главное меню</button>
   </section>`;
 
 const calibHtml = () => `
@@ -107,6 +248,7 @@ function resultsHtml(r: RoundResult): string {
   return `
   <section class="screen center over">
     <div class="over-card">
+      <button id="results-menu" class="menu-x" type="button" aria-label="В главное меню" title="В главное меню">×</button>
       <p class="chip ${r.place === 0 ? 'chip-record' : ''}">${r.place === 0 ? 'Новый рекорд!' : 'Танец окончен'}</p>
       ${starRow(r.stars)}
       <div class="big-score">${r.points}</div>
@@ -132,6 +274,7 @@ function resultsHtml(r: RoundResult): string {
           </ol>
         </div>
       </div>
+      ${podiumHtml()}
       <p class="restart" id="restart">Подними руку над головой, чтобы станцевать ещё раз</p>
     </div>
   </section>`;
@@ -141,20 +284,124 @@ function resultsHtml(r: RoundResult): string {
 export class Screens {
   private readonly root: HTMLElement;
   private readonly onStart: () => void;
+  private readonly onMenu: () => void;
   private key = '';
+  private showJoin = false;
 
-  constructor(root: HTMLElement, onStart: () => void) {
+  constructor(root: HTMLElement, onStart: () => void, onMenu: () => void) {
     this.root = root;
     this.onStart = onStart;
+    this.onMenu = onMenu;
     root.addEventListener('click', (e) => {
       const target = e.target;
-      if (target instanceof HTMLElement && (target.id === 'start-btn' || target.id === 'retry-btn')) this.onStart();
+      if (!(target instanceof HTMLElement)) return;
+      const btn = target.closest('button');
+      const id = btn?.id ?? target.id;
+      if (id === 'start-btn' || id === 'retry-btn') { this.onStart(); return; }
+      if (id === 'results-menu' || id === 'lobby-menu' || id === 'loading-cancel' || id === 'error-menu') { this.onMenu(); return; }
+      if (id === 'lobby-save-name') { this.saveName(); return; }
+      if (id === 'lobby-create') { this.createRoom(); return; }
+      if (id === 'lobby-join-toggle') { this.showJoin = true; return; }
+      if (id === 'lobby-join') { this.joinRoom(); return; }
+      if (id === 'lobby-start') { this.startDance(); return; }
+      if (id === 'lobby-leave') { try { mp.disconnect(); } catch { /* ignore */ } this.showJoin = false; return; }
+      if (id === 'lobby-again') { try { if (mp.amHost()) mp.resetRoom(); } catch { /* ignore */ } return; }
+      const songEl = target.closest('[data-song-id]');
+      if (songEl instanceof HTMLElement) {
+        const sid = songEl.getAttribute('data-song-id');
+        if (sid && (SONG_IDS as readonly string[]).includes(sid)) {
+          const songId = sid as SongId;
+          let inRoom = false;
+          let host = false;
+          try {
+            const st = mp.getState();
+            inRoom = st.roomId !== null;
+            host = st.isHost;
+          } catch { /* lobby without mp */
+          }
+          if (inRoom && !host) return;
+          try { setSong(songId); } catch { /* ignore */ }
+          try { if (inRoom && host) mp.selectSong(songId); } catch { /* ignore */ }
+        }
+      }
     });
+  }
+
+  private saveName(): void {
+    const input = document.getElementById('lobby-name-input');
+    const val = input instanceof HTMLInputElement ? input.value.trim().slice(0, 24) : '';
+    if (!val) return;
+    try { savePlayerName(val); } catch { /* storage unavailable */
+    }
+    try { mp.setName(val); } catch { /* ignore */
+    }
+  }
+
+  private createRoom(): void {
+    const code = makeRoomCode();
+    try { mp.connect(code, true); } catch { /* ignore */
+    }
+    this.showJoin = false;
+  }
+
+  private joinRoom(): void {
+    const input = document.getElementById('lobby-join-code');
+    const raw = input instanceof HTMLInputElement ? input.value.trim().toUpperCase() : '';
+    const code = raw.replace(/[^A-Z0-9]/g, '').slice(0, 6);
+    if (code.length < 4) return;
+    try {
+      const st = mp.getState();
+      if (st.roomId && Object.keys(st.players).length >= 4) return;
+    } catch { /* ignore */
+    }
+    try { mp.connect(code, false); } catch { /* ignore */
+    }
+    this.showJoin = false;
+  }
+
+  private startDance(): void {
+    try {
+      const st = mp.getState();
+      if (!st.isHost) return;
+      if (Object.keys(st.players).length < 1) return;
+      mp.startSong(st.songId ?? DEFAULT_SONG_ID);
+    } catch { /* ignore */
+    }
   }
 
   update(m: ScreenModel): void {
     const p = m.flow.phase;
-    const key = p.kind === 'warmup' ? `warmup-${p.step}-${p.doneAt !== null}-${p.skipped}` : p.kind;
+    let key: string;
+    if (p.kind === 'warmup') {
+      key = `warmup-${p.step}-${p.doneAt !== null}-${p.skipped}`;
+    } else if (p.kind === 'lobby') {
+      let room = '';
+      let players = '';
+      let song = '';
+      let host = '0';
+      try {
+        const st = mp.getState();
+        room = st.roomId ?? '';
+        players = Object.values(st.players).map((pl) => `${pl.id}:${pl.name}:${pl.isHost}:${pl.status}`).join(',');
+        // Solo (no room) never sets mp.songId, so derive from the title like
+        // lobbyHtml does — otherwise the key never changes and the highlight
+        // freezes after setSong().
+        song = st.songId ?? selectedSong(m.songTitle);
+        host = st.isHost ? '1' : '0';
+      } catch {
+        song = selectedSong(m.songTitle);
+      }
+      let saved = '';
+      try { saved = loadPlayerName() ?? ''; } catch { saved = ''; }
+      key = `lobby-${room}-${players}-${song}-${host}-${saved}-${this.showJoin ? '1' : '0'}`;
+    } else if (p.kind === 'results') {
+      const pod = sharedPodium;
+      key = pod && pod.length >= 2
+        ? `results-podium-${pod.map((e) => `${e.playerId}:${e.score}:${e.stars}:${e.place}`).join(',')}`
+        : 'results';
+    } else {
+      key = p.kind;
+    }
     if (key !== this.key) {
       this.key = key;
       this.root.innerHTML = this.html(m);
@@ -207,7 +454,7 @@ export class Screens {
         }
         break;
       }
-      case 'intro': case 'error': case 'dancing': break;
+      case 'intro': case 'error': case 'dancing': case 'lobby': break;
       default: {
         const _exhaustive: never = p;
         void _exhaustive;
@@ -219,6 +466,7 @@ export class Screens {
     const p = m.flow.phase;
     switch (p.kind) {
       case 'intro': return introHtml(m.demo);
+      case 'lobby': return lobbyHtml(m.songTitle, this.showJoin);
       case 'loading': return loadingHtml();
       case 'error': return errorHtml(p.message);
       case 'calibrating': return calibHtml();

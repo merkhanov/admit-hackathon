@@ -9,6 +9,7 @@ import type { MoveTarget } from '../dance/moves.ts';
 import { Coach, type CoachView } from './coach.ts';
 import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
+import { paletteFor } from './vfx.ts';
 
 const FLOOR_COLS = 11, FLOOR_ROWS = 6, TILE = 1.1;
 const FLOOR_PALETTE = [0xff2fb3, 0x22d3ee, 0xffd21f, 0x8a5cff, 0x3ccf4e];
@@ -28,7 +29,7 @@ export interface StageFrame {
 /** What main.ts needs from a stage, so the 3D stage and the 2D fallback are interchangeable. */
 export interface StageView {
   resize(): void;
-  react(rating: Rating): void;
+  react(rating: Rating, paletteKey?: string): void;
   draw(frame: StageFrame, dt: number): void;
 }
 
@@ -146,9 +147,10 @@ export class Stage implements StageView {
   }
 
   /** Celebrates good moves with confetti and shakes a little on a miss. */
-  react(rating: Rating): void {
-    if (rating === 'perfect') this.burst(46);
-    else if (rating === 'good') this.burst(18);
+  react(rating: Rating, paletteKey?: string): void {
+    const palette = paletteFor(paletteKey ?? 'steps');
+    if (rating === 'perfect') this.burst(46, [palette.primary, palette.secondary, palette.accent]);
+    else if (rating === 'good') this.burst(18, [palette.primary, palette.secondary]);
     else if (rating === 'miss') this.shake = 0.08;
   }
 
@@ -183,14 +185,14 @@ export class Stage implements StageView {
     this.renderer.render(this.scene, this.camera);
   }
 
-  private burst(count: number): void {
+  private burst(count: number, colors: string[]): void {
     for (let i = 0; i < count && this.confetti.length < MAX_CONFETTI; i++) {
       this.confetti.push({
         pos: new Vector3((Math.random() - 0.5) * 1.2, 2.4 + Math.random() * 0.6, 0.4),
         vel: new Vector3((Math.random() - 0.5) * 6, 2 + Math.random() * 4, (Math.random() - 0.2) * 3),
         spin: new Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8),
         life: 0,
-        color: new Color(FLOOR_PALETTE[Math.floor(Math.random() * FLOOR_PALETTE.length)]),
+        color: new Color(colors[Math.floor(Math.random() * colors.length)]),
       });
     }
   }

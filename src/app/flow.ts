@@ -3,6 +3,7 @@ import type { TrackerEvent } from '../pose/tracker.ts';
 
 export type Phase =
   | { kind: 'intro' }
+  | { kind: 'lobby' }
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
   | { kind: 'calibrating' }
@@ -18,7 +19,7 @@ export interface Flow {
   seenWarmup: boolean;
 }
 
-export type FlowCommand = 'recalibrate' | 'stepDone' | 'stepSkipped' | 'tick' | 'startSong' | 'finish';
+export type FlowCommand = 'recalibrate' | 'stepDone' | 'stepSkipped' | 'tick' | 'startSong' | 'finish' | 'beginCalibration';
 
 export interface WarmupStep {
   move: MoveId;
@@ -50,6 +51,9 @@ const enter = (flow: Flow, phase: Phase): Flow => ({ ...flow, phase, t: 0 });
 const warmupStep = (step: number): Phase => ({ kind: 'warmup', step, held: 0, doneAt: null, skipped: false });
 
 export const startRequested = (flow: Flow): Flow => enter(flow, { kind: 'loading' });
+export const enterLobby = (flow: Flow): Flow => enter(flow, { kind: 'lobby' });
+/** Results × button: back to the main menu. */
+export const enterIntro = (flow: Flow): Flow => enter(flow, { kind: 'intro' });
 export const cameraFailed = (flow: Flow, message: string): Flow => enter(flow, { kind: 'error', message });
 export const cameraReady = (flow: Flow): { flow: Flow; commands: FlowCommand[] } => ({
   flow: enter(flow, { kind: 'calibrating' }),
@@ -62,10 +66,12 @@ export interface FlowInput {
   /** How well the body matches the current warm-up pose, 0..1, or null when nobody is visible. */
   poseScore: number | null;
   songOver: boolean;
+  /** Lobby command: 'beginCalibration' moves lobby → calibrating. Also accepted as 3rd arg to stepFlow. */
+  command?: FlowCommand;
 }
 
 /** Pure step of the screen sequence: calibration, warm-up, countdown, song, results. */
-export function stepFlow(flow: Flow, input: FlowInput): { flow: Flow; commands: FlowCommand[] } {
+export function stepFlow(flow: Flow, input: FlowInput, command?: FlowCommand): { flow: Flow; commands: FlowCommand[] } {
   const commands: FlowCommand[] = [];
   const prevT = flow.t;
   const f: Flow = { ...flow, t: flow.t + input.dt };
@@ -77,6 +83,14 @@ export function stepFlow(flow: Flow, input: FlowInput): { flow: Flow; commands: 
     case 'loading':
     case 'error':
       return done(f);
+    case 'lobby': {
+      const cmd = command ?? input.command;
+      if (cmd === 'beginCalibration') {
+        commands.push('recalibrate');
+        return done(enter(f, { kind: 'calibrating' }));
+      }
+      return done(f);
+    }
     case 'calibrating':
       if (!input.events.includes('calibrated')) return done(f);
       return done(f.seenWarmup ? enter(f, { kind: 'countdown' }) : enter(f, warmupStep(0)));

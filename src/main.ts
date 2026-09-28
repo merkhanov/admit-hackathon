@@ -1,5 +1,5 @@
 import './style.css';
-import { cameraFailed, cameraReady, initFlow, startRequested, stepFlow, WARMUP, WARMUP_PASS, type Flow, type FlowCommand } from './app/flow.ts';
+import { cameraFailed, cameraReady, enterIntro, enterLobby, initFlow, startRequested, stepFlow, WARMUP, WARMUP_PASS, type Flow, type FlowCommand } from './app/flow.ts';
 import { insertScore, loadLeaderboard, saveLeaderboard, type ScoreEntry } from './app/leaderboard.ts';
 import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from './app/summary.ts';
 import { renderSong, SongPlayer } from './audio/music.ts';
@@ -7,13 +7,19 @@ import { Sfx } from './audio/sfx.ts';
 import { newDance, stars, stepDance, type DanceState, type Verdict } from './dance/dance.ts';
 import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
 import { MOVES, type MoveTarget } from './dance/moves.ts';
-import { beatLength, SONG, songDuration, stepAt } from './dance/song.ts';
+import { beatLength, songDuration, stepAt, type Song } from './dance/song.ts';
+import { DEFAULT_SONG_ID, SONGS, SONG_META, type SongId } from './dance/songs.ts';
 import { CameraError, downloadProgress, preloadRecognition, startCamera, type PoseSource } from './pose/camera.ts';
 import { startDemoSource } from './pose/demoSource.ts';
 import { calibration, initTracker, recalibrate, stepTracker, type TrackerEvent, type TrackerOutput } from './pose/tracker.ts';
 import { FlatStage } from './stage/flatStage.ts';
 import { Stage, type StageView } from './stage/stage.ts';
 import { Hud, type Banner } from './ui/hud.ts';
+import { Scoreboard } from './ui/scoreboard.ts';
+import { BroadcastTransport } from './multiplayer/broadcast.ts';
+import { MPManager } from './multiplayer/manager.ts';
+import { loadPlayerName, makePlayerId } from './multiplayer/persistence.ts';
+import { WebRTCTransport } from './multiplayer/webrtc.ts';
 import { PoseView } from './ui/pip.ts';
 import { Screens, type RoundResult } from './ui/screens.ts';
 
@@ -47,17 +53,61 @@ const screensRoot = document.getElementById('screens');
 if (!screensRoot) throw new Error('Missing #screens');
 
 const demo = new URLSearchParams(location.search).has('demo');
+const params = new URLSearchParams(location.search);
+
+/**
+ * Multiplayer: one manager per tab. Transport is chosen by URL:
+ * `?room=CODE` joins a cross-device room via WebRTC; otherwise same-device
+ * tabs sync via BroadcastChannel. Single-player (no room) skips multiplayer.
+ */
+const roomParam = params.get('room');
+const mpSelfId = makePlayerId();
+const mpName = loadPlayerName() ?? 'Игрок';
+const mpTransport = roomParam
+  ? new WebRTCTransport(mpSelfId)
+  : new BroadcastTransport(mpSelfId);
+export const mp = new MPManager(mpSelfId, mpName, mpTransport);
+if (roomParam) mp.connect(roomParam, params.get('host') === '1');
 const sfx = new Sfx();
 const stage = createStage(canvas('scene'));
 const poseView = new PoseView(canvas('pose'));
 const hud = new Hud();
-const screens = new Screens(screensRoot, () => void start());
+const scoreboard = new Scoreboard();
+const screens = new Screens(screensRoot, () => void start(), () => void toMenu());
 
 // Start the ~17 MB model download and the music render right away, while the player reads the intro.
 if (!demo) preloadRecognition().catch(() => undefined);
+
+/** The song for the current round. Changed from the lobby song selector or a multiplayer `songSelect`. */
+let currentSongId: SongId = DEFAULT_SONG_ID;
+const currentSong = (): Song => SONGS[currentSongId];
+/** Rendered audio per song, filled on demand. Only played songs consume memory. */
+const songBuffers = new Map<SongId, AudioBuffer>();
 let songBuffer: AudioBuffer | null = null;
+
+function ensureSongBuffer(id: SongId): Promise<AudioBuffer> {
+  const cached = songBuffers.get(id);
+  if (cached) return Promise.resolve(cached);
+  return renderSong(SONGS[id]).then(
+    (b) => {
+      songBuffers.set(id, b);
+      return b;
+    },
+    (err: unknown) => {
+      console.error('Song render failed', err);
+      throw err;
+    },
+  );
+}
+
 // Without the buffer the song clock still runs, silently; the error must at least be visible.
-renderSong(SONG).then((b) => { songBuffer = b; }, (err: unknown) => console.error('Song render failed', err));
+ensureSongBuffer(currentSongId).then((b) => { songBuffer = b; }, () => undefined);
+
+/** Switch the round's song (lobby selector or multiplayer host). Pre-renders its audio. */
+export function setSong(id: SongId): void {
+  currentSongId = id;
+  ensureSongBuffer(id).then((b) => { songBuffer = b; }, () => undefined);
+}
 
 let flow: Flow = initFlow();
 let tracker = initTracker();
@@ -72,6 +122,24 @@ let result: RoundResult | null = null;
 let clock = 0;
 /** When the current warm-up pose started going unmatched. */
 let warmupMissSince = 0;
+/** Last time we broadcast our live score to the room (ms). */
+let lastLiveScoreAt = 0;
+
+// Multiplayer reactions: song start from host, shared podium, room reset.
+mp.onEvent((ev) => {
+  if (ev.kind === 'songStarted') {
+    setSong(ev.songId);
+    sharedPodium = null;
+    if (flow.phase.kind === 'lobby') void start();
+  }
+  if (ev.kind === 'podiumReady') {
+    sharedPodium = ev.entries;
+  }
+  if (ev.kind === 'reset') {
+    sharedPodium = null;
+    if (flow.phase.kind === 'results') flow = enterLobby(flow);
+  }
+});
 
 const songTime = () => (player && flow.phase.kind === 'dancing' ? player.time() : -1);
 
@@ -80,16 +148,28 @@ function currentTarget(): MoveTarget | null {
   const p = flow.phase;
   if (p.kind === 'warmup') return MOVES[WARMUP[p.step].move];
   if (p.kind !== 'dancing') return null;
-  const i = stepAt(SONG, songTime());
-  return i >= 0 ? MOVES[SONG.steps[i].move] : null;
+  const song = currentSong();
+  const i = stepAt(song, songTime());
+  return i >= 0 ? MOVES[song.steps[i].move] : null;
 }
 
 async function start(): Promise<void> {
-  if (flow.phase.kind !== 'intro' && flow.phase.kind !== 'error') return;
+  if (flow.phase.kind === 'intro' || flow.phase.kind === 'error') {
+    flow = enterLobby(flow);
+    return;
+  }
+  if (flow.phase.kind !== 'lobby') return;
   player = new SongPlayer(sfx.unlock());
   flow = startRequested(flow);
   try {
-    source = demo ? startDemoSource(currentTarget) : await startCamera();
+    const src = demo ? startDemoSource(currentTarget) : await startCamera();
+    if (flow.phase.kind !== 'loading') {
+      // The user cancelled while the camera was starting: release it, stay where they went.
+      const stream = src.video?.srcObject;
+      if (stream instanceof MediaStream) stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    source = src;
     const r = cameraReady(flow);
     flow = r.flow;
     runCommands(r.commands);
@@ -98,10 +178,23 @@ async function start(): Promise<void> {
   }
 }
 
+/** Results × button: back to the main menu. Leaves the room so peers see us go. */
+function toMenu(): void {
+  player?.stop();
+  if (mp.getState().roomId) mp.disconnect();
+  dance = null;
+  mistakes = {};
+  verdict = null;
+  result = null;
+  sharedPodium = null;
+  flow = enterIntro(flow);
+}
+
 function runCommands(commands: readonly FlowCommand[]): void {
   for (const c of commands) {
     switch (c) {
       case 'recalibrate':
+      case 'beginCalibration':
         tracker = recalibrate(tracker);
         break;
       case 'stepDone': sfx.play('step'); break;
@@ -125,10 +218,25 @@ function runCommands(commands: readonly FlowCommand[]): void {
   }
 }
 
+/** Shared podium from multiplayer (host-broadcast), shown instead of the local board. */
+export let sharedPodium: import('./multiplayer/types.ts').PodiumEntry[] | null = null;
+
 function finishRound(): void {
   player?.stop();
   const d = dance ?? newDance();
-  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, SONG), at: new Date().toISOString() };
+  // Multiplayer: share the result; the host aggregates into a shared podium.
+  if (mp.getState().roomId) {
+    const parts = partAccuracy(d);
+    const overall = parts.length > 0 ? Math.round(parts.reduce((s, p) => s + p.pct, 0) / parts.length) : 0;
+    mp.sendResult(d.points, stars(d.points, currentSong()), overall);
+    if (mp.amHost()) {
+      // Give guests a moment to report, then publish. Late results still show locally.
+      setTimeout(() => {
+        if (mp.getState().roomId) sharedPodium = mp.publishPodium();
+      }, 4000);
+    }
+  }
+  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, currentSong()), at: new Date().toISOString() };
   let board: ScoreEntry[] = [entry];
   let place = 0;
   try {
@@ -148,7 +256,7 @@ function finishRound(): void {
 
 function bannerFor(): Banner | null {
   const kind = flow.phase.kind;
-  if (!lastOut || kind === 'intro' || kind === 'loading' || kind === 'error') return null;
+  if (!lastOut || kind === 'intro' || kind === 'lobby' || kind === 'loading' || kind === 'error') return null;
   const hints = lastOut.hints;
   const frame = hints.find((h) => h.kind === 'frame');
   if (frame) return { tone: 'frame', label: 'Поправь кадр', text: frame.text };
@@ -195,34 +303,47 @@ function frame(now: number, dt: number): void {
     events,
     dt,
     poseScore: liveMatch?.score ?? null,
-    songOver: flow.phase.kind === 'dancing' && t >= songDuration(SONG),
+    songOver: flow.phase.kind === 'dancing' && t >= songDuration(currentSong()),
   });
   flow = step.flow;
   runCommands(step.commands);
 
   if (flow.phase.kind === 'dancing' && dance) {
-    const r = stepDance(dance, SONG, songTime(), body);
+    const r = stepDance(dance, currentSong(), songTime(), body);
     dance = r.state;
     for (const v of r.verdicts) {
       verdict = { v, until: clock + VERDICT_S };
       mistakes = logVerdict(mistakes, v);
       hud.showVerdict(v.rating);
-      stage.react(v.rating);
+      stage.react(v.rating, SONG_META[currentSongId].palette);
       sfx.play(v.rating);
+    }
+    // Multiplayer: broadcast live score about once a second.
+    if (mp.getState().roomId && now - lastLiveScoreAt >= MPManager.LIVE_SCORE_MS) {
+      lastLiveScoreAt = now;
+      mp.sendLiveScore(dance.points, dance.combo);
     }
   }
 
   const kind = flow.phase.kind;
   const dancing = kind === 'dancing';
-  const coachIndex = dancing ? stepAt(SONG, songTime() + COACH_LEAD_S) : -1;
-  const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[SONG.steps[coachIndex].move] : null;
-  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(SONG) : 0, playing: dancing }, dt);
+  const song = currentSong();
+  const coachIndex = dancing ? stepAt(song, songTime() + COACH_LEAD_S) : -1;
+  const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[song.steps[coachIndex].move] : null;
+  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing }, dt);
 
-  const cameraOn = source !== null && kind !== 'intro' && kind !== 'loading' && kind !== 'error';
+  // Live multiplayer scoreboard: visible during the dance when ≥2 players share the room.
+  if (dancing && Object.keys(mp.getState().players).length > 1) {
+    scoreboard.show(Object.values(mp.getState().players), mp.self);
+  } else {
+    scoreboard.hide();
+  }
+
+  const cameraOn = source !== null && kind !== 'intro' && kind !== 'lobby' && kind !== 'loading' && kind !== 'error';
   hud.showPip(cameraOn);
   if (cameraOn) poseView.draw(source?.video ?? null, lastOut, kind === 'warmup' || dancing ? target : null, liveMatch);
-  hud.showDance(dancing ? dance : null, SONG);
-  hud.showPictos(dancing ? SONG : null, songTime());
+  hud.showDance(dancing ? dance : null, song);
+  hud.showPictos(dancing ? song : null, songTime());
   if (!dancing) hud.hideVerdict();
   hud.showBanner(bannerFor());
   const calib = lastOut?.hints.find((h) => h.kind === 'calib');
@@ -231,7 +352,7 @@ function frame(now: number, dt: number): void {
     calibProgress: calib && calib.kind === 'calib' ? calib.progress : 0,
     loadProgress: downloadProgress(),
     result,
-    songTitle: SONG.title,
+    songTitle: song.title,
     demo,
   });
 }
