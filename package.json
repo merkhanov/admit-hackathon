@@ -17,5 +17,9 @@
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1"
+  },
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=22"
   }
 }
