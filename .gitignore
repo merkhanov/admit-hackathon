@@ -29,3 +29,6 @@ dist-ssr
 
 # Third-party model, downloaded by scripts/fetch-models.mjs (not redistributed)
 public/models/
+
+# Harness
+.context/

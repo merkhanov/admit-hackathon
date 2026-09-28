@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  cameraReady, COUNTDOWN_S, initFlow, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, STEP_TIMEOUT_S,
+  cameraReady, COUNTDOWN_S, enterIntro, initFlow, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, STEP_TIMEOUT_S,
   WARMUP, WARMUP_HOLD_S, type Flow, type FlowCommand, type FlowInput,
 } from '../src/app/flow.ts';
 import { insertScore, parseLeaderboard } from '../src/app/leaderboard.ts';
@@ -77,6 +77,13 @@ describe('flow', () => {
     expect(r.commands).toEqual(['recalibrate']);
     const next = stepFlow(r.flow, { events: ['calibrated'], dt: DT, poseScore: null, songOver: false });
     expect(next.flow.phase.kind).toBe('countdown');
+  });
+
+  it('the menu button returns from results to intro', () => {
+    const f: Flow = { phase: { kind: 'results' }, t: 12, seenWarmup: true };
+    const next = enterIntro(f);
+    expect(next.phase).toEqual({ kind: 'intro' });
+    expect(next.t).toBe(0);
   });
 });
 

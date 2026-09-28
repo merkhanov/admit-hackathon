@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run test:*)", "Bash(npm run typecheck)", "Bash(npm run lint)",
+      "Bash(npm run build)", "Bash(npm run dev)",
+      "Bash(npx playwright *)", "Bash(npx lighthouse *)", "Bash(npx odiff-bin *)"
+    ],
+    "deny": ["Read(./.env*)", "Bash(cat *.env*)", "Bash(grep * .env*)"]
+  }
+}
