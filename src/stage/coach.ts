@@ -8,24 +8,57 @@ const RAD = Math.PI / 180;
 interface Limb { shoulder: Group; elbow: Group }
 
 /** Current coach pose in the same terms as a move target, eased towards the next move. */
-interface CoachPose {
+export interface CoachPose {
   dir: Record<Side, number>;
   bend: Record<Side, number>;
   tilt: number;
   squat: number;
 }
 
+/** Anything that can show the coach: the cartoon one or the rigged human. */
+export interface CoachView {
+  readonly group: Group;
+  update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void;
+}
+
+/**
+ * Eases the coach towards the move on screen, so it arrives on the beat instead of snapping.
+ * Shared by both coaches, so each shows exactly the angles the judge scores.
+ */
+export class CoachMotion {
+  readonly pose: CoachPose = { dir: { L: 15, R: 15 }, bend: { L: 20, R: 20 }, tilt: 0, squat: 0 };
+
+  step(target: MoveTarget | null, beatIndex: number, dt: number): CoachPose {
+    const k = Math.min(1, dt * 12);
+    const p = this.pose;
+    for (const s of ['L', 'R'] as const) {
+      // Idle groove when no move is on screen.
+      const dir = target ? target.arms[s].dir : 20 + Math.sin(beatIndex * 1.7 + (s === 'L' ? 0 : 2)) * 12;
+      const bend = target ? 180 - target.arms[s].elbow : 35;
+      // Ease the angle the short way round, so an arm never swings through the body.
+      let delta = dir - p.dir[s];
+      if (delta > 180) delta -= 360;
+      if (delta < -180) delta += 360;
+      p.dir[s] += delta * k;
+      p.bend[s] += (bend - p.bend[s]) * k;
+    }
+    p.tilt += ((target?.tilt ?? 0) - p.tilt) * k;
+    p.squat += ((target?.squat ? 1 : 0) - p.squat) * k;
+    return p;
+  }
+}
+
 /**
  * The dancer the player copies. It faces the camera and is built by screen side:
  * the arm on screen-left is target arm "L", which the player mirrors with their own left arm.
  */
-export class Coach {
+export class Coach implements CoachView {
   readonly group = new Group();
   private readonly hips = new Group();
   private readonly torso = new Group();
   private readonly arms: Record<Side, Limb>;
   private readonly legs: Record<Side, { hip: Group; knee: Group }>;
-  private readonly pose: CoachPose = { dir: { L: 15, R: 15 }, bend: { L: 20, R: 20 }, tilt: 0, squat: 0 };
+  private readonly motion = new CoachMotion();
 
   constructor(ramp: Texture) {
     const mat = (color: number) => new MeshToonMaterial({ color, gradientMap: ramp });
@@ -97,21 +130,7 @@ export class Coach {
    * The pose eases towards the target, so the coach arrives on the beat instead of snapping.
    */
   update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void {
-    const k = Math.min(1, dt * 12);
-    const p = this.pose;
-    for (const s of ['L', 'R'] as const) {
-      const dir = target ? target.arms[s].dir : 20 + Math.sin(beatIndex * 1.7 + (s === 'L' ? 0 : 2)) * 12;
-      const bend = target ? 180 - target.arms[s].elbow : 35;
-      // Ease the angle the short way round, so an arm never swings through the body.
-      let delta = dir - p.dir[s];
-      if (delta > 180) delta -= 360;
-      if (delta < -180) delta += 360;
-      p.dir[s] += delta * k;
-      p.bend[s] += (bend - p.bend[s]) * k;
-    }
-    p.tilt += ((target?.tilt ?? 0) - p.tilt) * k;
-    p.squat += ((target?.squat ? 1 : 0) - p.squat) * k;
-
+    const p = this.motion.step(target, beatIndex, dt);
     for (const s of ['L', 'R'] as const) {
       const sign = s === 'L' ? -1 : 1; // screen-left arm swings out towards -x
       const upper = p.dir[s] - p.bend[s] / 2;

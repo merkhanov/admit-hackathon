@@ -1,10 +1,13 @@
 import {
-  AdditiveBlending, BoxGeometry, Color, ConeGeometry, DirectionalLight, DoubleSide, HemisphereLight, InstancedMesh, Mesh,
-  MeshBasicMaterial, MeshToonMaterial, Object3D, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer,
+  ACESFilmicToneMapping, AdditiveBlending, BoxGeometry, Color, ConeGeometry, DirectionalLight, DoubleSide, HemisphereLight,
+  InstancedMesh, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, PCFShadowMap, PerspectiveCamera, PlaneGeometry,
+  PMREMGenerator, PointLight, Scene, Vector3, WebGLRenderer,
 } from 'three';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Rating } from '../dance/dance.ts';
 import type { MoveTarget } from '../dance/moves.ts';
-import { Coach } from './coach.ts';
+import { Coach, type CoachView } from './coach.ts';
+import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
 
 const FLOOR_COLS = 11, FLOOR_ROWS = 6, TILE = 1.1;
@@ -34,7 +37,7 @@ export class Stage implements StageView {
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(38, 1, 0.1, 100);
-  private readonly coach: Coach;
+  private coach: CoachView;
   private readonly floor: InstancedMesh;
   private readonly beams: Mesh[] = [];
   private readonly confetti: Confetti[] = [];
@@ -48,20 +51,46 @@ export class Stage implements StageView {
     // Throws without WebGL; main.ts shows the flat fallback coach instead.
     this.renderer = new WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    // Film-like tone mapping and soft shadows for the dancer; the neon parts opt out of tone mapping.
+    this.renderer.toneMapping = ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = PCFShadowMap;
     this.scene.background = new Color(0x1a0f5c);
+    const pmrem = new PMREMGenerator(this.renderer);
+    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+    this.scene.environmentIntensity = 0.55;
 
     const ramp = toonRamp();
-    this.scene.add(new HemisphereLight(0xffe6ff, 0x3a2a80, 1.7));
-    const key = new DirectionalLight(0xffffff, 1.6);
-    key.position.set(2, 4, 6);
+    this.scene.add(new HemisphereLight(0xffe6ff, 0x3a2a80, 0.9));
+    const key = new DirectionalLight(0xffffff, 2.2);
+    key.position.set(2.5, 6, 5);
+    key.castShadow = true;
+    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.camera.left = -3; key.shadow.camera.right = 3;
+    key.shadow.camera.top = 4; key.shadow.camera.bottom = -1;
+    key.shadow.camera.near = 1; key.shadow.camera.far = 16;
+    key.shadow.bias = -0.0005;
+    key.shadow.radius = 4;
     this.scene.add(key);
+    // Coloured rim lights from behind, like stage lamps.
+    for (const [x, color] of [[-2.5, 0xff2fb3], [2.5, 0x22d3ee]] as const) {
+      const rim = new PointLight(color, 18, 9, 1.6);
+      rim.position.set(x, 3.2, -1.6);
+      this.scene.add(rim);
+    }
 
-    const wall = new Mesh(new PlaneGeometry(26, 14), new MeshBasicMaterial({ map: backdrop() }));
+    const wall = new Mesh(new PlaneGeometry(26, 14), new MeshBasicMaterial({ map: backdrop(), toneMapped: false }));
     wall.position.set(0, 5, -5);
     this.scene.add(wall);
 
     const tile = floorTile();
-    this.floor = new InstancedMesh(new BoxGeometry(TILE * 0.96, 0.1, TILE * 0.96), new MeshToonMaterial({ map: tile, gradientMap: ramp }), FLOOR_COLS * FLOOR_ROWS);
+    this.floor = new InstancedMesh(
+      new BoxGeometry(TILE * 0.96, 0.1, TILE * 0.96),
+      new MeshStandardMaterial({ map: tile, roughness: 0.3, metalness: 0.15, toneMapped: false }),
+      FLOOR_COLS * FLOOR_ROWS,
+    );
+    this.floor.receiveShadow = true;
     let i = 0;
     for (let r = 0; r < FLOOR_ROWS; r++) {
       for (let c = 0; c < FLOOR_COLS; c++) {
@@ -79,17 +108,27 @@ export class Stage implements StageView {
     beamGeo.translate(0, -4.5, 0);
     for (let b = 0; b < 4; b++) {
       const m = new Mesh(beamGeo, new MeshBasicMaterial({
-        map: beamTex, color: FLOOR_PALETTE[b], transparent: true, opacity: 0.35, blending: AdditiveBlending, depthWrite: false,
+        map: beamTex, color: FLOOR_PALETTE[b], transparent: true, opacity: 0.35, blending: AdditiveBlending, depthWrite: false, toneMapped: false,
       }));
       m.position.set((b - 1.5) * 3.2, 8, -3);
       this.beams.push(m);
       this.scene.add(m);
     }
 
+    // The cartoon coach dances until the rigged human arrives, and stays if the model can't load.
     this.coach = new Coach(ramp);
+    this.coach.group.traverse((o) => { if (o instanceof Mesh) o.castShadow = true; });
     this.scene.add(this.coach.group);
+    RealCoach.load(`${import.meta.env.BASE_URL}models/michelle.glb`).then(
+      (real) => {
+        this.scene.remove(this.coach.group);
+        this.coach = real;
+        this.scene.add(real.group);
+      },
+      (err: unknown) => console.warn('Dancer model unavailable, keeping the cartoon coach', err),
+    );
 
-    this.confettiMesh = new InstancedMesh(new PlaneGeometry(0.09, 0.14), new MeshBasicMaterial({ color: 0xffffff, side: DoubleSide }), MAX_CONFETTI);
+    this.confettiMesh = new InstancedMesh(new PlaneGeometry(0.09, 0.14), new MeshBasicMaterial({ color: 0xffffff, side: DoubleSide, toneMapped: false }), MAX_CONFETTI);
     this.confettiMesh.count = 0;
     this.confettiMesh.frustumCulled = false;
     this.scene.add(this.confettiMesh);
@@ -137,8 +176,8 @@ export class Stage implements StageView {
 
     this.shake = Math.max(0, this.shake - dt * 0.4);
     const j = () => (Math.random() - 0.5) * this.shake;
-    this.camera.position.set(j(), 1.55 + j(), 7.2);
-    this.camera.lookAt(0, 1.25, 0);
+    this.camera.position.set(j(), 1.5 + j(), 6.1);
+    this.camera.lookAt(0, 1.2, 0);
 
     this.stepConfetti(dt);
     this.renderer.render(this.scene, this.camera);
