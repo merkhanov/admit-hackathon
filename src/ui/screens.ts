@@ -1,16 +1,20 @@
-import { countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S, TUTORIAL, type Flow } from '../app/flow.ts';
+import { countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S, WARMUP, WARMUP_HOLD_S, type Flow } from '../app/flow.ts';
 import type { ScoreEntry } from '../app/leaderboard.ts';
-import { GESTURE_ICONS } from './icons.ts';
+import type { PartAccuracy } from '../app/summary.ts';
+import { RATING_NAMES, type Rating } from '../dance/dance.ts';
+import { MOVES, type MoveId } from '../dance/moves.ts';
+import { pictogramSvg } from './pictogram.ts';
 
 export interface RoundResult {
-  score: number;
-  coins: number;
-  distance: number;
-  cleared: number;
+  points: number;
+  stars: number;
+  counts: Record<Rating, number>;
+  maxCombo: number;
+  accuracy: PartAccuracy[];
+  advice: string[];
   place: number;
   board: ScoreEntry[];
   entry: ScoreEntry;
-  advice: string[];
 }
 
 export interface ScreenModel {
@@ -19,36 +23,31 @@ export interface ScreenModel {
   /** Download share of the recognition model, 0..1. */
   loadProgress: number;
   result: RoundResult | null;
+  songTitle: string;
   demo: boolean;
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
+const starRow = (n: number) => `<div class="star-row">${Array.from({ length: 5 }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</div>`;
 
-const INTRO_GESTURES = [
-  { icon: GESTURE_ICONS.jump, name: 'Прыжок', how: 'рука выше головы', what: 'через барьер' },
-  { icon: GESTURE_ICONS.duck, name: 'Присед', how: 'плечи вниз', what: 'под перекладиной' },
-  { icon: GESTURE_ICONS.leanL, name: 'Наклон', how: 'плечи влево или вправо', what: 'смена дорожки' },
-  { icon: GESTURE_ICONS.punch, name: 'Удар', how: 'прямая рука в сторону', what: 'разбить ящик' },
-];
+const SHOWCASE: readonly MoveId[] = ['wings', 'discoL', 'muscles', 'leanL'];
 
 function introHtml(demo: boolean): string {
   return `
   <section class="screen intro">
     <div class="intro-card">
       <p class="eyebrow">Admit Hackathon · кейс Motion</p>
-      <h1 class="logo">Motion<span>Runner</span></h1>
-      <p class="lead">Беги телом. Камера вместо джойстика: прыгай, приседай, наклоняйся и бей, а игра подскажет, если движение получилось неточным.</p>
+      <h1 class="logo">Motion<span>Dance</span></h1>
+      <p class="lead">Танцуй перед камерой. Повторяй движения за тренером как в зеркале, а игра оценит каждое движение и подскажет, что поправить: какую руку поднять выше и насколько.</p>
       <ul class="gesture-grid">
-        ${INTRO_GESTURES.map((g) => `
+        ${SHOWCASE.map((id) => `
           <li class="gesture-card">
-            <span class="gesture-icon">${g.icon}</span>
-            <strong>${g.name}</strong>
-            <span>${g.how}</span>
-            <em>${g.what}</em>
+            <span class="gesture-icon">${pictogramSvg(MOVES[id])}</span>
+            <strong>${MOVES[id].name}</strong>
           </li>`).join('')}
       </ul>
-      <button class="cta" id="start-btn" type="button">${demo ? 'Запустить демо без камеры' : 'Включить камеру и играть'}</button>
-      <p class="fineprint">Дальше мышь и клавиатура не нужны. Встань в 1,5–2 м от камеры или сядь так, чтобы в кадре были голова, плечи и руки. Видео обрабатывается прямо в браузере и никуда не отправляется.</p>
+      <button class="cta" id="start-btn" type="button">${demo ? 'Запустить демо без камеры' : 'Включить камеру и танцевать'}</button>
+      <p class="fineprint">Дальше мышь и клавиатура не нужны. Встань в 1,5–2 м от камеры, чтобы в кадре были голова, плечи и разведённые руки. Можно танцевать сидя. Видео обрабатывается прямо в браузере и никуда не отправляется, музыка генерируется там же.</p>
     </div>
   </section>`;
 }
@@ -71,66 +70,69 @@ const errorHtml = (message: string) => `
 const calibHtml = () => `
   <section class="screen side">
     <div class="panel">
-      <p class="eyebrow">Шаг 1 · калибровка</p>
+      <p class="eyebrow">Калибровка</p>
       <h2>Встань ровно и опусти руки</h2>
       <p class="muted">Я запомню твою обычную позу. От неё считаются присед и наклоны.</p>
       <div class="ring" id="calib-ring" style="--p:0"><span id="calib-pct">0%</span></div>
     </div>
   </section>`;
 
-function tutorialHtml(step: number, done: boolean, skipped: boolean): string {
-  const s = TUTORIAL[step];
+function warmupHtml(step: number, done: boolean, skipped: boolean): string {
+  const s = WARMUP[step];
   const title = skipped ? 'Пропустим пока' : done ? 'Отлично!' : s.title;
-  const text = skipped
-    ? 'Этот жест не распознался. Попробуешь его в игре, подсказки внизу помогут.'
-    : done ? 'Жест распознан.' : s.text;
+  const text = skipped ? 'Поза не совпала. В песне подсказки внизу помогут.' : done ? 'Поза совпала.' : s.text;
   return `
   <section class="screen side">
     <div class="panel ${skipped ? 'panel-skipped' : done ? 'panel-done' : ''}">
-      <p class="eyebrow">Обучение · ${step + 1} из ${TUTORIAL.length}</p>
-      <div class="dots">${TUTORIAL.map((_, i) => `<i class="${i < step || (i === step && done) ? 'on' : ''}"></i>`).join('')}</div>
-      <span class="tutorial-icon">${GESTURE_ICONS[s.gesture]}</span>
+      <p class="eyebrow">Разминка · ${step + 1} из ${WARMUP.length}</p>
+      <div class="dots">${WARMUP.map((_, i) => `<i class="${i < step || (i === step && done) ? 'on' : ''}"></i>`).join('')}</div>
+      <span class="tutorial-icon">${pictogramSvg(MOVES[s.move])}</span>
       <h2>${title}</h2>
       <p class="muted">${text}</p>
+      <div class="hold-bar" aria-hidden="true"><i id="hold-bar"></i></div>
       <p class="step-warn" id="step-warn"></p>
     </div>
   </section>`;
 }
 
-const countdownHtml = (n: number) => `
+const countdownHtml = (n: number, title: string) => `
   <section class="screen center countdown">
     <div class="count" id="count">${n}</div>
-    <p class="muted">Приготовься: препятствия уже бегут навстречу</p>
+    <p class="muted">Песня «${esc(title)}». Повторяй за тренером!</p>
   </section>`;
 
-function overHtml(r: RoundResult): string {
-  const record = r.place === 0;
+function resultsHtml(r: RoundResult): string {
   const date = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  const ratings: readonly Rating[] = ['perfect', 'good', 'ok', 'miss'];
   return `
   <section class="screen center over">
     <div class="over-card">
-      <p class="eyebrow">${record ? 'Новый рекорд!' : 'Забег окончен'}</p>
-      <div class="big-score">${r.score}</div>
+      <p class="eyebrow">${r.place === 0 ? 'Новый рекорд!' : 'Танец окончен'}</p>
+      ${starRow(r.stars)}
+      <div class="big-score">${r.points}</div>
       <ul class="stats">
-        <li><strong>${Math.round(r.distance * 100)} м</strong><span>дистанция</span></li>
-        <li><strong>${r.coins}</strong><span>монеты</span></li>
-        <li><strong>${r.cleared}</strong><span>препятствий пройдено</span></li>
+        ${ratings.map((k) => `<li class="rating-${k}"><strong>${r.counts[k]}</strong><span>${RATING_NAMES[k]}</span></li>`).join('')}
+        <li><strong>×${r.maxCombo}</strong><span>лучшее комбо</span></li>
       </ul>
       <div class="over-columns">
         <div>
-          <h3>Разбор движений</h3>
+          <h3>Точность по частям тела</h3>
+          <ul class="accuracy">
+            ${r.accuracy.slice(0, 4).map((a) => `<li><span>${a.name}</span><b style="--p:${a.pct / 100}"><i></i></b><em>${a.pct}%</em></li>`).join('')}
+          </ul>
+          <h3>Что подтянуть</h3>
           ${r.advice.length
             ? `<ol class="advice">${r.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ol>`
-            : '<p class="muted">Ошибок почти не было. Чистый забег!</p>'}
+            : '<p class="muted">Ошибок почти не было. Чистый танец!</p>'}
         </div>
         <div>
           <h3>Рекорды на этом устройстве</h3>
           <ol class="board">
-            ${r.board.map((e) => `<li class="${e === r.entry ? 'me' : ''}"><span>${e.score}</span><em>${date(e.at)}</em></li>`).join('')}
+            ${r.board.map((e) => `<li class="${e === r.entry ? 'me' : ''}"><span>${e.score}</span><em>${'★'.repeat(e.stars)} · ${date(e.at)}</em></li>`).join('')}
           </ol>
         </div>
       </div>
-      <p class="restart" id="restart">Подними руку над головой, чтобы сыграть снова</p>
+      <p class="restart" id="restart">Подними руку над головой, чтобы станцевать ещё раз</p>
     </div>
   </section>`;
 }
@@ -152,47 +154,63 @@ export class Screens {
 
   update(m: ScreenModel): void {
     const p = m.flow.phase;
-    const key = p.kind === 'tutorial' ? `tutorial-${p.step}-${p.doneAt !== null}-${p.skipped}` : p.kind;
+    const key = p.kind === 'warmup' ? `warmup-${p.step}-${p.doneAt !== null}-${p.skipped}` : p.kind;
     if (key !== this.key) {
       this.key = key;
       this.root.innerHTML = this.html(m);
     }
-    if (p.kind === 'loading') {
-      const bar = document.getElementById('load-bar');
-      const text = document.getElementById('load-text');
-      bar?.style.setProperty('--p', String(m.loadProgress));
-      if (text) {
-        text.textContent = m.loadProgress < 1
-          ? `Модель распознавания: ${Math.round(m.loadProgress * 100)}%. Разреши доступ к камере, если браузер спросит.`
-          : 'Запускаю нейросеть. Это займёт пару секунд.';
+    const byId = (id: string) => document.getElementById(id);
+    switch (p.kind) {
+      case 'loading': {
+        byId('load-bar')?.style.setProperty('--p', String(m.loadProgress));
+        const text = byId('load-text');
+        if (text) {
+          text.textContent = m.loadProgress < 1
+            ? `Модель распознавания: ${Math.round(m.loadProgress * 100)}%. Разреши доступ к камере, если браузер спросит.`
+            : 'Запускаю нейросеть. Это займёт пару секунд.';
+        }
+        break;
       }
-    } else if (p.kind === 'calibrating') {
-      const ring = document.getElementById('calib-ring');
-      const pct = document.getElementById('calib-pct');
-      ring?.style.setProperty('--p', String(m.calibProgress));
-      if (pct) pct.textContent = `${Math.round(m.calibProgress * 100)}%`;
-    } else if (p.kind === 'tutorial') {
-      const el = document.getElementById('step-warn');
-      if (el) {
-        el.textContent = p.doneAt === null && m.flow.t >= STEP_WARN_S
-          ? `Не получается? Через ${Math.ceil(STEP_TIMEOUT_S - m.flow.t)} с перейдём к следующему жесту.`
-          : '';
+      case 'calibrating': {
+        byId('calib-ring')?.style.setProperty('--p', String(m.calibProgress));
+        const pct = byId('calib-pct');
+        if (pct) pct.textContent = `${Math.round(m.calibProgress * 100)}%`;
+        break;
       }
-    } else if (p.kind === 'countdown') {
-      const el = document.getElementById('count');
-      const n = String(countdownLeft(m.flow));
-      if (el && el.textContent !== n) {
-        el.textContent = n;
-        el.classList.remove('pop');
-        void el.offsetWidth;
-        el.classList.add('pop');
+      case 'warmup': {
+        byId('hold-bar')?.style.setProperty('--p', String(p.doneAt !== null ? 1 : Math.min(1, p.held / WARMUP_HOLD_S)));
+        const warn = byId('step-warn');
+        if (warn) {
+          warn.textContent = p.doneAt === null && m.flow.t >= STEP_WARN_S
+            ? `Не получается? Через ${Math.ceil(STEP_TIMEOUT_S - m.flow.t)} с перейдём дальше.`
+            : '';
+        }
+        break;
       }
-    } else if (p.kind === 'over') {
-      const el = document.getElementById('restart');
-      const left = Math.ceil(RESTART_LOCK_S - m.flow.t);
-      if (el) {
-        el.textContent = left > 0 ? `Можно начать заново через ${left} с` : 'Подними руку над головой, чтобы сыграть снова';
-        el.classList.toggle('ready', left <= 0);
+      case 'countdown': {
+        const el = byId('count');
+        const n = String(countdownLeft(m.flow));
+        if (el && el.textContent !== n) {
+          el.textContent = n;
+          el.classList.remove('pop');
+          void el.offsetWidth;
+          el.classList.add('pop');
+        }
+        break;
+      }
+      case 'results': {
+        const el = byId('restart');
+        const left = Math.ceil(RESTART_LOCK_S - m.flow.t);
+        if (el) {
+          el.textContent = left > 0 ? `Можно начать заново через ${left} с` : 'Подними руку над головой, чтобы станцевать ещё раз';
+          el.classList.toggle('ready', left <= 0);
+        }
+        break;
+      }
+      case 'intro': case 'error': case 'dancing': break;
+      default: {
+        const _exhaustive: never = p;
+        void _exhaustive;
       }
     }
   }
@@ -204,10 +222,10 @@ export class Screens {
       case 'loading': return loadingHtml();
       case 'error': return errorHtml(p.message);
       case 'calibrating': return calibHtml();
-      case 'tutorial': return tutorialHtml(p.step, p.doneAt !== null, p.skipped);
-      case 'countdown': return countdownHtml(countdownLeft(m.flow));
-      case 'playing': return '';
-      case 'over': return m.result ? overHtml(m.result) : '';
+      case 'warmup': return warmupHtml(p.step, p.doneAt !== null, p.skipped);
+      case 'countdown': return countdownHtml(countdownLeft(m.flow), m.songTitle);
+      case 'dancing': return '';
+      case 'results': return m.result ? resultsHtml(m.result) : '';
       default: {
         const _exhaustive: never = p;
         return _exhaustive;

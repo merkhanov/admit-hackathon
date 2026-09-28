@@ -1,12 +1,26 @@
-import { DUCK_DROP, JUMP_UP, type Calibration, type GestureId } from '../pose/gestures.ts';
+import type { MoveEval, PartId } from '../dance/judge.ts';
+import type { MoveTarget } from '../dance/moves.ts';
+import type { Side } from '../pose/features.ts';
 import { IDX, SKELETON } from '../pose/landmarks.ts';
 import type { TrackerOutput } from '../pose/tracker.ts';
 
-const OK = '#4ade80', NEAR = '#ffb020', IDLE = '#eef1ff';
+const GOOD = '#4ade80', NEAR = '#ffd21f', BAD = '#ff4d5e', IDLE = '#ffffff', GHOST = '#ffd21f';
+const RAD = Math.PI / 180;
+const ARM_LENGTH = 1.6; // shoulder widths
 
-const ARM_JOINTS = new Set<number>([IDX.LEFT_ELBOW, IDX.RIGHT_ELBOW, IDX.LEFT_WRIST, IDX.RIGHT_WRIST]);
+const LEFT_ARM = new Set<number>([IDX.LEFT_ELBOW, IDX.LEFT_WRIST]);
+const RIGHT_ARM = new Set<number>([IDX.RIGHT_ELBOW, IDX.RIGHT_WRIST]);
 
-/** Mirrored camera view with the recognized skeleton, so the player sees what the system sees. */
+function partColor(e: MoveEval | null, part: PartId): string {
+  const p = e?.parts.find((x) => x.part === part);
+  if (!p) return IDLE;
+  return p.score >= 0.85 ? GOOD : p.score >= 0.5 ? NEAR : BAD;
+}
+
+/**
+ * Mirrored camera view with the recognized skeleton. During a move it also draws the target
+ * arms as a dashed ghost from the player's own shoulders, so the fix is visible without reading.
+ */
 export class PoseView {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
@@ -18,7 +32,7 @@ export class PoseView {
     this.ctx = ctx;
   }
 
-  draw(video: HTMLVideoElement | null, out: TrackerOutput | null, calib: Calibration | null): void {
+  draw(video: HTMLVideoElement | null, out: TrackerOutput | null, target: MoveTarget | null, match: MoveEval | null): void {
     const { canvas, ctx } = this;
     const aspect = video && video.videoWidth ? video.videoWidth / video.videoHeight : 4 / 3;
     const W = canvas.clientWidth * Math.min(2, window.devicePixelRatio || 1);
@@ -27,7 +41,7 @@ export class PoseView {
       canvas.width = Math.round(W);
       canvas.height = Math.round(H);
     }
-    ctx.fillStyle = '#05060d';
+    ctx.fillStyle = '#0b1026';
     ctx.fillRect(0, 0, W, H);
     if (video && video.readyState >= 2) {
       ctx.save();
@@ -39,31 +53,40 @@ export class PoseView {
     }
     const pose = out?.pose;
     if (!out || !pose) return;
-
     const P = (i: number) => ({ x: (1 - pose[i].x) * W, y: pose[i].y * H });
     const f = out.features;
-    if (f.present) {
-      ctx.setLineDash([6, 6]);
-      ctx.lineWidth = 1.5;
-      ctx.font = `600 ${Math.round(H / 22)}px Rubik, system-ui, sans-serif`;
-      const jumpY = (Math.min(pose[IDX.LEFT_SHOULDER].y, pose[IDX.RIGHT_SHOULDER].y) - JUMP_UP * f.sw) * H;
-      this.guide(jumpY, '#7c93ff', 'прыжок');
-      if (calib) this.guide((calib.midY + DUCK_DROP * calib.sw) * H, '#c084fc', 'присед');
+    ctx.lineCap = 'round';
+
+    if (target && f.present) {
+      // Ghost of the target arms, measured in the player's own shoulder widths.
+      const reach = ARM_LENGTH * f.sw * H;
+      ctx.setLineDash([8, 7]);
+      ctx.lineWidth = Math.max(4, W / 55);
+      ctx.strokeStyle = GHOST;
+      ctx.globalAlpha = 0.9;
+      const shoulders: readonly (readonly [Side, number])[] = [['L', IDX.LEFT_SHOULDER], ['R', IDX.RIGHT_SHOULDER]];
+      for (const [s, idx] of shoulders) {
+        const sh = P(idx);
+        const sign = s === 'L' ? -1 : 1;
+        const { dir, elbow } = target.arms[s];
+        const bend = 180 - elbow;
+        const upper = (dir - bend / 2) * RAD, fore = (dir + bend / 2) * RAD;
+        const ex = sh.x + (sign * Math.sin(upper) * reach) / 2, ey = sh.y + (Math.cos(upper) * reach) / 2;
+        ctx.beginPath();
+        ctx.moveTo(sh.x, sh.y);
+        ctx.lineTo(ex, ey);
+        ctx.lineTo(ex + (sign * Math.sin(fore) * reach) / 2, ey + (Math.cos(fore) * reach) / 2);
+        ctx.stroke();
+      }
       ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
     }
 
-    const state = (ids: readonly GestureId[]) => {
-      if (ids.some((id) => out.readout[id]?.phase === 'active')) return OK;
-      if (ids.some((id) => out.readout[id]?.hinting)) return NEAR;
-      return IDLE;
-    };
-    const arms = state(['jump', 'punch']);
-    const body = state(['duck', 'leanL', 'leanR']);
-
-    ctx.lineCap = 'round';
+    const left = partColor(match, 'armL'), right = partColor(match, 'armR');
+    const body = match ? partColor(match, 'tilt') : IDLE;
     ctx.lineWidth = Math.max(3, W / 90);
     for (const [a, b] of SKELETON) {
-      ctx.strokeStyle = ARM_JOINTS.has(a) || ARM_JOINTS.has(b) ? arms : body;
+      ctx.strokeStyle = LEFT_ARM.has(a) || LEFT_ARM.has(b) ? left : RIGHT_ARM.has(a) || RIGHT_ARM.has(b) ? right : body;
       const A = P(a), B = P(b);
       ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
     }
@@ -75,13 +98,5 @@ export class PoseView {
       const q = P(i);
       ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(2.5, W / 150), 0, Math.PI * 2); ctx.fill();
     }
-  }
-
-  private guide(y: number, color: string, label: string): void {
-    const { ctx, canvas } = this;
-    ctx.strokeStyle = color;
-    ctx.fillStyle = color;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(canvas.width, y); ctx.stroke();
-    ctx.fillText(label, 8, y - 5);
   }
 }

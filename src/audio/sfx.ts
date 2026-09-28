@@ -1,4 +1,4 @@
-export type Sound = 'jump' | 'punch' | 'smash' | 'coin' | 'clear' | 'hit' | 'lane' | 'step' | 'tick' | 'go' | 'hint' | 'over' | 'record';
+export type Sound = 'perfect' | 'good' | 'ok' | 'miss' | 'step' | 'tick' | 'go' | 'hint' | 'over' | 'record';
 
 interface Tone {
   freq: number;
@@ -10,13 +10,10 @@ interface Tone {
 }
 
 const SOUNDS: Record<Sound, Tone[]> = {
-  jump: [{ freq: 320, to: 720, dur: 0.16, type: 'square', gain: 0.08 }],
-  punch: [{ freq: 180, to: 60, dur: 0.12, type: 'sawtooth', gain: 0.1 }],
-  smash: [{ freq: 140, to: 40, dur: 0.25, type: 'square', gain: 0.14 }, { freq: 900, to: 200, dur: 0.15, type: 'triangle', gain: 0.08 }],
-  coin: [{ freq: 988, dur: 0.07, type: 'square', gain: 0.06 }, { freq: 1319, dur: 0.12, type: 'square', gain: 0.06, delay: 0.07 }],
-  clear: [{ freq: 660, dur: 0.08, type: 'triangle', gain: 0.1 }, { freq: 880, dur: 0.12, type: 'triangle', gain: 0.1, delay: 0.08 }],
-  hit: [{ freq: 110, to: 45, dur: 0.35, type: 'sawtooth', gain: 0.18 }],
-  lane: [{ freq: 440, to: 520, dur: 0.06, type: 'triangle', gain: 0.06 }],
+  perfect: [{ freq: 1047, dur: 0.08, type: 'triangle', gain: 0.07 }, { freq: 1568, dur: 0.14, type: 'triangle', gain: 0.07, delay: 0.07 }],
+  good: [{ freq: 784, dur: 0.12, type: 'triangle', gain: 0.06 }],
+  ok: [{ freq: 523, dur: 0.1, type: 'triangle', gain: 0.05 }],
+  miss: [{ freq: 196, to: 150, dur: 0.18, type: 'sawtooth', gain: 0.05 }],
   step: [{ freq: 523, dur: 0.1, type: 'triangle', gain: 0.1 }, { freq: 659, dur: 0.1, type: 'triangle', gain: 0.1, delay: 0.1 }, { freq: 784, dur: 0.18, type: 'triangle', gain: 0.1, delay: 0.2 }],
   tick: [{ freq: 600, dur: 0.1, type: 'square', gain: 0.07 }],
   go: [{ freq: 900, dur: 0.3, type: 'square', gain: 0.08 }],
@@ -30,9 +27,10 @@ export class Sfx {
   private ctx: AudioContext | null = null;
 
   /** Browsers only allow audio after a user gesture, so call this from the start click. */
-  unlock(): void {
+  unlock(): AudioContext {
     this.ctx ??= new AudioContext();
     void this.ctx.resume();
+    return this.ctx;
   }
 
   play(sound: Sound): void {
