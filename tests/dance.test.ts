@@ -39,6 +39,35 @@ describe('moves', () => {
   });
 });
 
+describe('framing', () => {
+  it('a lowered arm below the bottom of the frame still counts as down', () => {
+    const at = { sw: 0.3, sy: 0.55 };
+    const n = features(synthPose({ ...NEUTRAL, ...at }), SYNTH_ASPECT);
+    if (!n.present) throw new Error('visible');
+    const lm = synthPose({ ...NEUTRAL, ...at, ...paramsFor(MOVES.leftUp) });
+    expect(lm[16].y).toBeGreaterThan(1); // the right wrist is off the bottom edge
+    const body = bodyAngles(features(lm, SYNTH_ASPECT), { midY: n.midY, sw: n.sw });
+    if (!body) throw new Error('visible');
+    expect(rate(evaluate(MOVES.leftUp, body).score)).toBe('perfect');
+  });
+
+  it('an arm that should be up but is below the frame is named', () => {
+    const at = { sw: 0.3, sy: 0.64 };
+    const n = features(synthPose({ ...NEUTRAL, ...at }), SYNTH_ASPECT);
+    if (!n.present) throw new Error('visible');
+    const lm = synthPose({ ...NEUTRAL, ...at });
+    expect(lm[15].y).toBeGreaterThan(1);
+    const body = bodyAngles(features(lm, SYNTH_ASPECT), { midY: n.midY, sw: n.sw });
+    if (!body) throw new Error('visible');
+    expect(evaluate(MOVES.up, body).worst?.hint).toMatch(/рука ниже кадра: подними её/);
+  });
+
+  it('a shoulder hiked by a raised arm does not spoil a one-arm move', () => {
+    const e = evaluate(MOVES.leftUp, bodyFor({ ...paramsFor(MOVES.leftUp), tilt: -12 }));
+    expect(rate(e.score)).toBe('perfect');
+  });
+});
+
 describe('corrections', () => {
   it('a low left arm gets "raise it" with the angle', () => {
     const e = evaluate(MOVES.up, bodyFor(paramsFor(MOVES.up, { L: -45 })));

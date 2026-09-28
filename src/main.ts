@@ -56,7 +56,8 @@ const screens = new Screens(screensRoot, () => void start());
 // Start the ~17 MB model download and the music render right away, while the player reads the intro.
 if (!demo) preloadRecognition().catch(() => undefined);
 let songBuffer: AudioBuffer | null = null;
-renderSong(SONG).then((b) => { songBuffer = b; }, () => undefined);
+// Without the buffer the song clock still runs, silently; the error must at least be visible.
+renderSong(SONG).then((b) => { songBuffer = b; }, (err: unknown) => console.error('Song render failed', err));
 
 let flow: Flow = initFlow();
 let tracker = initTracker();

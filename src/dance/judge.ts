@@ -10,6 +10,8 @@ export const PART_NAMES: Record<PartId, string> = {
 
 export interface ArmAngles {
   ok: boolean;
+  /** Wrist below the bottom edge of the frame. */
+  offBottom: boolean;
   /** Shoulder-to-wrist direction: 0 = down, 90 = out, 180 = up, negative = across the body. */
   dir: number;
   elbow: number;
@@ -54,7 +56,7 @@ export function bodyAngles(f: Features, calib: Calibration | null): BodyAngles |
   if (!f.present) return null;
   const arm = (s: Side): ArmAngles => {
     const a = f.arms[s];
-    return { ok: a.ok, dir: deg(Math.atan2(a.out, -a.raise)), elbow: a.elbow };
+    return { ok: a.ok, offBottom: a.offBottom, dir: deg(Math.atan2(a.out, -a.raise)), elbow: a.elbow };
   };
   return {
     arms: { L: arm('L'), R: arm('R') },
@@ -67,12 +69,20 @@ export function bodyAngles(f: Features, calib: Calibration | null): BodyAngles |
 export const ARM_FULL_DEG = 18;
 export const ARM_ZERO_DEG = 50;
 
+/** A lowered arm that hangs below the frame is where a "down" target wants it. */
+const DOWN_DEG = 25;
+
 function armPart(s: Side, target: number, arm: ArmAngles): PartScore {
+  if (!arm.ok && arm.offBottom) {
+    return Math.abs(target) <= DOWN_DEG
+      ? { part: PART_ARM[s], score: 1, hint: '' }
+      : { part: PART_ARM[s], score: 0, hint: `${ARM[s]} рука ниже кадра: подними её, как у тренера` };
+  }
   if (!arm.ok) return { part: PART_ARM[s], score: 0, hint: `Не вижу ${ARM_ACC[s]} руку: держи её в кадре` };
   const err = Math.abs(angleDiff(arm.dir, target));
   // Speak in terms of the arc a person feels: across the body, out to the side, higher or lower.
   let action: string;
-  if (Math.abs(target) <= 25) action = 'опусти вдоль тела';
+  if (Math.abs(target) <= DOWN_DEG) action = 'опусти вдоль тела';
   else if (target < -15 && arm.dir > 0) action = 'уведи через тело к другому боку';
   else if (target > 15 && arm.dir < -15) action = 'отведи в сторону от тела';
   else action = Math.abs(target) > Math.abs(arm.dir) ? 'подними выше' : 'опусти ниже';
@@ -92,7 +102,8 @@ function elbowPart(s: Side, target: number, arm: ArmAngles): PartScore | null {
 function tiltPart(target: number, tilt: number): PartScore {
   const err = Math.abs(tilt - target);
   if (target === 0) {
-    return { part: 'tilt', score: clamp01(1 - (err - 10) / 15), hint: `Выпрямись: плечи наклонены ${tilt > 0 ? 'влево' : 'вправо'} на ${Math.round(err)}°` };
+    // Generous: raising one arm hikes that shoulder by itself.
+    return { part: 'tilt', score: clamp01(1 - (err - 15) / 20), hint: `Выпрямись: плечи наклонены ${tilt > 0 ? 'влево' : 'вправо'} на ${Math.round(err)}°` };
   }
   const need = target - tilt;
   const side = need > 0 ? 'влево' : 'вправо';

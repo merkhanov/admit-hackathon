@@ -13,6 +13,8 @@ export interface ArmFeatures {
   elbow: number;
   /** The wrist is past the left or right edge of the frame. */
   offSide: boolean;
+  /** The wrist is below the bottom edge (common when seated or far back). */
+  offBottom: boolean;
 }
 
 export type Features =
@@ -64,6 +66,7 @@ export function features(pose: Pose | null, aspect: number): Features {
       out: (outward * (W.x - S.x)) / sw,
       elbow: angleAt(S, E, W),
       offSide: pose[w].x < 0.01 || pose[w].x > 0.99,
+      offBottom: pose[w].y > 0.99,
     };
   };
 
