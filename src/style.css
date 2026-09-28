@@ -138,6 +138,9 @@ h3 { font-size: 14px; font-weight: 600; letter-spacing: 0.02em; color: var(--mut
 }
 .panel-done { border-color: var(--good); box-shadow: 0 0 0 1px var(--good), 0 0 40px -10px var(--good); }
 .panel-done h2 { color: var(--good); }
+.panel-skipped { border-color: var(--warn); }
+.panel-skipped h2 { color: var(--warn); }
+.step-warn { margin: 0; min-height: 1.5em; font-size: 14px; color: var(--warn); }
 .tutorial-icon { width: 120px; height: 120px; color: var(--ink); align-self: center; margin: 8px 0; }
 .panel-done .tutorial-icon { color: var(--good); }
 .dots { display: flex; gap: 6px; }

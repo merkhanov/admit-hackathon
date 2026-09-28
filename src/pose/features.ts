@@ -11,6 +11,8 @@ export interface ArmFeatures {
   out: number;
   /** Angle at the elbow in degrees, 180 = straight arm. */
   elbow: number;
+  /** The wrist is past the left or right edge of the frame. */
+  offSide: boolean;
 }
 
 export type Features =
@@ -25,8 +27,12 @@ export type Features =
       tilt: number;
       /** Shoulder midpoint height as a fraction of the frame height. */
       midY: number;
+      /** Frame width / height. */
+      aspect: number;
       arms: Record<Side, ArmFeatures>;
     };
+
+interface Point { x: number; y: number; v: number }
 
 const visibility = (v: number | undefined) => v ?? 1;
 
@@ -36,8 +42,6 @@ function angleAt(a: Point, b: Point, c: Point): number {
   const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / d));
   return (Math.acos(cos) * 180) / Math.PI;
 }
-
-interface Point { x: number; y: number; v: number }
 
 /**
  * Turns raw landmarks into body measurements that don't depend on distance to the camera.
@@ -59,6 +63,7 @@ export function features(pose: Pose | null, aspect: number): Features {
       raise: (S.y - W.y) / sw,
       out: (outward * (W.x - S.x)) / sw,
       elbow: angleAt(S, E, W),
+      offSide: pose[w].x < 0.01 || pose[w].x > 0.99,
     };
   };
 
@@ -68,6 +73,7 @@ export function features(pose: Pose | null, aspect: number): Features {
     sw,
     tilt,
     midY: (ls.y + rs.y) / 2,
+    aspect,
     arms: {
       L: arm(IDX.LEFT_SHOULDER, IDX.LEFT_ELBOW, IDX.LEFT_WRIST, 1),
       R: arm(IDX.RIGHT_SHOULDER, IDX.RIGHT_ELBOW, IDX.RIGHT_WRIST, -1),

@@ -6,7 +6,7 @@ export type Phase =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
   | { kind: 'calibrating' }
-  | { kind: 'tutorial'; step: number; doneAt: number | null }
+  | { kind: 'tutorial'; step: number; doneAt: number | null; skipped: boolean }
   | { kind: 'countdown' }
   | { kind: 'playing' }
   | { kind: 'over' };
@@ -18,7 +18,7 @@ export interface Flow {
   seenTutorial: boolean;
 }
 
-export type FlowCommand = 'recalibrate' | 'newGame' | 'stepDone' | 'tick' | 'go';
+export type FlowCommand = 'recalibrate' | 'newGame' | 'stepDone' | 'stepSkipped' | 'tick' | 'go';
 
 export interface TutorialStep {
   gesture: GestureId;
@@ -36,6 +36,10 @@ export const TUTORIAL: readonly TutorialStep[] = [
 ];
 
 export const STEP_PAUSE_S = 1.0;
+/** A step that isn't done by then moves on anyway, so one unrecognized gesture can't block the game. */
+export const STEP_TIMEOUT_S = 15;
+/** When the tutorial starts telling the player it will move on. */
+export const STEP_WARN_S = 8;
 export const COUNTDOWN_S = 3;
 /** Game over screen ignores gestures this long, so the last move of the round doesn't restart it. */
 export const RESTART_LOCK_S = 2.5;
@@ -72,7 +76,7 @@ export function stepFlow(flow: Flow, input: FlowInput): { flow: Flow; commands: 
       return done(f);
     case 'calibrating':
       if (input.events.includes('calibrated')) {
-        return done(f.seenTutorial ? enter(f, { kind: 'countdown' }) : enter(f, { kind: 'tutorial', step: 0, doneAt: null }));
+        return done(f.seenTutorial ? enter(f, { kind: 'countdown' }) : enter(f, { kind: 'tutorial', step: 0, doneAt: null, skipped: false }));
       }
       return done(f);
     case 'tutorial': {
@@ -82,10 +86,14 @@ export function stepFlow(flow: Flow, input: FlowInput): { flow: Flow; commands: 
           commands.push('stepDone');
           return done({ ...f, phase: { ...p, doneAt: f.t } });
         }
+        if (f.t >= STEP_TIMEOUT_S) {
+          commands.push('stepSkipped');
+          return done({ ...f, phase: { ...p, doneAt: f.t, skipped: true } });
+        }
         return done(f);
       }
       if (f.t - p.doneAt < STEP_PAUSE_S) return done(f);
-      if (p.step + 1 < TUTORIAL.length) return done(enter(f, { kind: 'tutorial', step: p.step + 1, doneAt: null }));
+      if (p.step + 1 < TUTORIAL.length) return done(enter(f, { kind: 'tutorial', step: p.step + 1, doneAt: null, skipped: false }));
       return done(enter({ ...f, seenTutorial: true }, { kind: 'countdown' }));
     }
     case 'countdown':

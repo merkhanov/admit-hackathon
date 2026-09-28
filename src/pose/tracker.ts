@@ -1,5 +1,5 @@
 import { features, type Features } from './features.ts';
-import { armBusy, framingProblem, GESTURE_IDS, GESTURES, type Calibration, type GestureId } from './gestures.ts';
+import { armBusy, framingProblem, GESTURE_IDS, GESTURES, punchFitLimit, type Calibration, type GestureId } from './gestures.ts';
 import type { Landmark, Pose } from './landmarks.ts';
 
 /** A near-miss must hold this long before a hint, so a normal fast move never triggers one. */
@@ -119,11 +119,14 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
   if (state.stage.kind === 'calibrating') {
     const down = (['L', 'R'] as const).every((s) => !f.arms[s].ok || f.arms[s].raise < -0.4);
     const straight = Math.abs(f.tilt) <= 5;
-    if (!down || !straight) {
+    const fits = f.sw <= punchFitLimit(f.aspect);
+    if (!down || !straight || !fits) {
       hints.push({
         kind: 'calib',
         progress: 0,
-        text: !down ? 'Опусти руки: запоминаю исходную позу' : 'Выпрямись, не наклоняйся: запоминаю исходную позу',
+        text: !fits
+          ? 'Отойди подальше: вытянутая в сторону рука должна помещаться в кадр'
+          : !down ? 'Опусти руки: запоминаю исходную позу' : 'Выпрямись, не наклоняйся: запоминаю исходную позу',
       });
       return out(startCalibration());
     }

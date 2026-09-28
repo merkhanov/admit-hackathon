@@ -1,4 +1,4 @@
-import { countdownLeft, RESTART_LOCK_S, TUTORIAL, type Flow } from '../app/flow.ts';
+import { countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S, TUTORIAL, type Flow } from '../app/flow.ts';
 import type { ScoreEntry } from '../app/leaderboard.ts';
 import { GESTURE_ICONS } from './icons.ts';
 
@@ -78,16 +78,21 @@ const calibHtml = () => `
     </div>
   </section>`;
 
-function tutorialHtml(step: number, done: boolean): string {
+function tutorialHtml(step: number, done: boolean, skipped: boolean): string {
   const s = TUTORIAL[step];
+  const title = skipped ? 'Пропустим пока' : done ? 'Отлично!' : s.title;
+  const text = skipped
+    ? 'Этот жест не распознался. Попробуешь его в игре, подсказки внизу помогут.'
+    : done ? 'Жест распознан.' : s.text;
   return `
   <section class="screen side">
-    <div class="panel ${done ? 'panel-done' : ''}">
+    <div class="panel ${skipped ? 'panel-skipped' : done ? 'panel-done' : ''}">
       <p class="eyebrow">Обучение · ${step + 1} из ${TUTORIAL.length}</p>
       <div class="dots">${TUTORIAL.map((_, i) => `<i class="${i < step || (i === step && done) ? 'on' : ''}"></i>`).join('')}</div>
       <span class="tutorial-icon">${GESTURE_ICONS[s.gesture]}</span>
-      <h2>${done ? 'Отлично!' : s.title}</h2>
-      <p class="muted">${done ? 'Жест распознан.' : s.text}</p>
+      <h2>${title}</h2>
+      <p class="muted">${text}</p>
+      <p class="step-warn" id="step-warn"></p>
     </div>
   </section>`;
 }
@@ -147,7 +152,7 @@ export class Screens {
 
   update(m: ScreenModel): void {
     const p = m.flow.phase;
-    const key = p.kind === 'tutorial' ? `tutorial-${p.step}-${p.doneAt !== null}` : p.kind;
+    const key = p.kind === 'tutorial' ? `tutorial-${p.step}-${p.doneAt !== null}-${p.skipped}` : p.kind;
     if (key !== this.key) {
       this.key = key;
       this.root.innerHTML = this.html(m);
@@ -166,6 +171,13 @@ export class Screens {
       const pct = document.getElementById('calib-pct');
       ring?.style.setProperty('--p', String(m.calibProgress));
       if (pct) pct.textContent = `${Math.round(m.calibProgress * 100)}%`;
+    } else if (p.kind === 'tutorial') {
+      const el = document.getElementById('step-warn');
+      if (el) {
+        el.textContent = p.doneAt === null && m.flow.t >= STEP_WARN_S
+          ? `Не получается? Через ${Math.ceil(STEP_TIMEOUT_S - m.flow.t)} с перейдём к следующему жесту.`
+          : '';
+      }
     } else if (p.kind === 'countdown') {
       const el = document.getElementById('count');
       const n = String(countdownLeft(m.flow));
@@ -192,7 +204,7 @@ export class Screens {
       case 'loading': return loadingHtml();
       case 'error': return errorHtml(p.message);
       case 'calibrating': return calibHtml();
-      case 'tutorial': return tutorialHtml(p.step, p.doneAt !== null);
+      case 'tutorial': return tutorialHtml(p.step, p.doneAt !== null, p.skipped);
       case 'countdown': return countdownHtml(countdownLeft(m.flow));
       case 'playing': return '';
       case 'over': return m.result ? overHtml(m.result) : '';

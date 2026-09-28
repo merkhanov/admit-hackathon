@@ -57,7 +57,10 @@ export function synthPose(p: SynthParams, noise = 0, random: () => number = Math
 
   const jitter = () => (random() * 2 - 1) * noise;
   const put = (i: number, q: { x: number; y: number }) => {
-    lm[i] = { x: q.x / SYNTH_ASPECT + jitter(), y: q.y + jitter(), visibility: p.vis };
+    const x = q.x / SYNTH_ASPECT + jitter(), y = q.y + jitter();
+    // Like MediaPipe: a point outside the frame still gets coordinates, but low visibility.
+    const inside = x >= 0 && x <= 1 && y >= 0 && y <= 1;
+    lm[i] = { x, y, visibility: inside ? p.vis : Math.min(p.vis, 0.1) };
   };
   put(0, nose);
   put(11, LS); put(12, RS);

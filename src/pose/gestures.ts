@@ -40,6 +40,7 @@ export const LEAN_DEG = 14;
 
 const cm = (shoulderWidths: number) => Math.max(1, Math.round(shoulderWidths * CM_PER_SW));
 const ARM: Record<Side, string> = { L: 'левую', R: 'правую' };
+const ARM_CAP: Record<Side, string> = { L: 'Левая', R: 'Правая' };
 const ELBOW: Record<Side, string> = { L: 'левый', R: 'правый' };
 const SIDES: readonly Side[] = ['R', 'L'];
 
@@ -60,7 +61,12 @@ function measurePunch(f: Tracked): Measure {
   let best: Measure = { p: 0 };
   for (const s of SIDES) {
     const a = f.arms[s];
-    if (!a.ok || Math.abs(a.raise) >= 1.0 || a.out < 0.5) continue;
+    if (Math.abs(a.raise) >= 1.0 || a.out < 0.5) continue;
+    if (!a.ok) {
+      // MediaPipe loses a wrist outside the frame. Say so instead of staying silent.
+      if (a.offSide) best = { p: 0.99, hint: `${ARM_CAP[s]} рука выходит за край кадра: отойди от камеры или встань ближе к центру` };
+      continue;
+    }
     let p = Math.min(a.out / PUNCH_OUT, 1);
     let hint: string | undefined;
     if (Math.abs(a.raise) >= PUNCH_BAND) {
@@ -106,6 +112,12 @@ export const GESTURE_IDS: readonly GestureId[] = ['jump', 'punch', 'duck', 'lean
 export function armBusy(f: Tracked): boolean {
   return SIDES.some((s) => f.arms[s].ok && (f.arms[s].raise > 0.3 || f.arms[s].out > 0.7));
 }
+
+/**
+ * Largest shoulder width (fraction of frame height) at which a centred player's straight sideways arm
+ * still fits in the frame: half the frame width must hold half the shoulders plus the arm.
+ */
+export const punchFitLimit = (aspect: number): number => aspect / 2 / (0.5 + PUNCH_OUT + 0.1);
 
 /** Returns a concrete framing problem, or null when the upper body is usable. */
 export function framingProblem(f: Features): string | null {

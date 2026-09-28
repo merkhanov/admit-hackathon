@@ -138,6 +138,29 @@ describe('punch', () => {
   });
 });
 
+describe('distance to the camera', () => {
+  it('calibration asks to step back until a sideways arm fits in the frame', () => {
+    const p = new Player().hold({ sw: 0.6, sy: 0.5 }, 1500);
+    expect(p.state.stage.kind).toBe('calibrating');
+    expect(p.lastHints[0]).toMatchObject({ kind: 'calib', text: expect.stringContaining('Отойди подальше') });
+    p.hold({ sw: 0.3 }, 1200);
+    expect(p.events).toContain('calibrated');
+  });
+
+  it('a punch at the calibration limit still fits and registers', () => {
+    const p = new Player().hold({ sw: 0.3 }, 1200);
+    p.events = [];
+    p.hold({ sw: 0.3, rUp: 0, rOut: 1.6 }, 300);
+    expect(p.events).toEqual(['punch']);
+  });
+
+  it('a wrist leaving through the side of the frame gets a hint, not silence', () => {
+    const p = new Player().calibrated().hold({ sw: 0.5, sy: 0.45, rUp: 0, rOut: 1.6 }, 600);
+    expect(p.events).toEqual([]);
+    expect(p.fixHint()).toContain('выходит за край кадра');
+  });
+});
+
 describe('duck', () => {
   it('emits start and end around a held squat', () => {
     const p = new Player().calibrated().hold({ drop: 0.6 }, 800).hold({}, 400);

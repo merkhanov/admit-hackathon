@@ -76,6 +76,7 @@ function runCommands(commands: readonly FlowCommand[]): void {
         miss = null;
         break;
       case 'stepDone': sfx.play('step'); break;
+      case 'stepSkipped': sfx.play('hint'); break;
       case 'tick': sfx.play('tick'); break;
       case 'go': sfx.play('go'); break;
       default: {

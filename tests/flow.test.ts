@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cameraReady, COUNTDOWN_S, initFlow, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, TUTORIAL, type Flow, type FlowCommand } from '../src/app/flow.ts';
+import { cameraReady, COUNTDOWN_S, initFlow, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, STEP_TIMEOUT_S, TUTORIAL, type Flow, type FlowCommand } from '../src/app/flow.ts';
 import type { Hint, TrackerEvent } from '../src/pose/tracker.ts';
 import type { GestureId } from '../src/pose/gestures.ts';
 import { adviceLines, countHintOnsets, emptyHintCounts } from '../src/app/summary.ts';
@@ -26,7 +26,7 @@ describe('flow', () => {
     const ready = cameraReady(f);
     expect(ready.commands).toEqual(['recalibrate']);
     f = tick(ready.flow, ['calibrated']).flow;
-    expect(f.phase).toEqual({ kind: 'tutorial', step: 0, doneAt: null });
+    expect(f.phase).toEqual({ kind: 'tutorial', step: 0, doneAt: null, skipped: false });
 
     for (const step of TUTORIAL) {
       const r = tick(f, [step.event]);
@@ -52,6 +52,15 @@ describe('flow', () => {
     const f = tick(cameraReady(startRequested(initFlow())).flow, ['calibrated']).flow;
     const r = tick(f, ['leanL']);
     expect(r.flow.phase).toMatchObject({ kind: 'tutorial', step: 0, doneAt: null });
+  });
+
+  it('a gesture that never registers does not trap the player in the tutorial', () => {
+    let f = tick(cameraReady(startRequested(initFlow())).flow, ['calibrated']).flow;
+    const r = wait(f, STEP_TIMEOUT_S + 0.2);
+    expect(r.commands).toContain('stepSkipped');
+    expect(r.flow.phase).toMatchObject({ kind: 'tutorial', step: 0, skipped: true });
+    f = wait(r.flow, STEP_PAUSE_S + 0.2).flow;
+    expect(f.phase).toMatchObject({ kind: 'tutorial', step: 1, doneAt: null, skipped: false });
   });
 
   it('after game over, a jump restarts only after the lock, with recalibration and no tutorial', () => {
