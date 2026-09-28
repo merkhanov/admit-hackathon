@@ -1,0 +1,76 @@
+import { IDX, type Pose } from './landmarks.ts';
+
+export type Side = 'L' | 'R';
+
+export interface ArmFeatures {
+  /** Wrist is visible, or above the top edge of the frame (a raised hand still counts). */
+  ok: boolean;
+  /** Wrist height above its own shoulder, in shoulder widths. */
+  raise: number;
+  /** Wrist distance outward from its own shoulder, in shoulder widths. */
+  out: number;
+  /** Angle at the elbow in degrees, 180 = straight arm. */
+  elbow: number;
+}
+
+export type Features =
+  | { present: false }
+  | {
+      present: true;
+      /** Lowest visibility among nose and both shoulders. */
+      vis: number;
+      /** Shoulder width as a fraction of the frame height. */
+      sw: number;
+      /** Shoulder line tilt in degrees, positive when the person leans to their own left. */
+      tilt: number;
+      /** Shoulder midpoint height as a fraction of the frame height. */
+      midY: number;
+      arms: Record<Side, ArmFeatures>;
+    };
+
+const visibility = (v: number | undefined) => v ?? 1;
+
+function angleAt(a: Point, b: Point, c: Point): number {
+  const v1x = a.x - b.x, v1y = a.y - b.y, v2x = c.x - b.x, v2y = c.y - b.y;
+  const d = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y) || 1;
+  const cos = Math.max(-1, Math.min(1, (v1x * v2x + v1y * v2y) / d));
+  return (Math.acos(cos) * 180) / Math.PI;
+}
+
+interface Point { x: number; y: number; v: number }
+
+/**
+ * Turns raw landmarks into body measurements that don't depend on distance to the camera.
+ * `aspect` is frame width / height, so x and y are measured in the same units.
+ */
+export function features(pose: Pose | null, aspect: number): Features {
+  if (!pose) return { present: false };
+  const P = (i: number): Point => ({ x: pose[i].x * aspect, y: pose[i].y, v: visibility(pose[i].visibility) });
+  const ls = P(IDX.LEFT_SHOULDER), rs = P(IDX.RIGHT_SHOULDER), nose = P(IDX.NOSE);
+  const sw = Math.hypot(ls.x - rs.x, ls.y - rs.y) || 1e-6;
+  // In the raw (unmirrored) image the person's left shoulder is on the right.
+  // Leaning to their own left pushes that shoulder down.
+  const tilt = (Math.atan2(ls.y - rs.y, Math.abs(ls.x - rs.x)) * 180) / Math.PI;
+
+  const arm = (s: number, e: number, w: number, outward: 1 | -1): ArmFeatures => {
+    const S = P(s), E = P(e), W = P(w);
+    return {
+      ok: W.v >= 0.5 || W.y < 0.05,
+      raise: (S.y - W.y) / sw,
+      out: (outward * (W.x - S.x)) / sw,
+      elbow: angleAt(S, E, W),
+    };
+  };
+
+  return {
+    present: true,
+    vis: Math.min(nose.v, ls.v, rs.v),
+    sw,
+    tilt,
+    midY: (ls.y + rs.y) / 2,
+    arms: {
+      L: arm(IDX.LEFT_SHOULDER, IDX.LEFT_ELBOW, IDX.LEFT_WRIST, 1),
+      R: arm(IDX.RIGHT_SHOULDER, IDX.RIGHT_ELBOW, IDX.RIGHT_WRIST, -1),
+    },
+  };
+}
