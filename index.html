@@ -4,28 +4,25 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-    <meta name="theme-color" content="#1f7cff" />
+    <meta name="theme-color" content="#8140d0" />
     <meta name="description" content="Танцевальная игра через веб-камеру: повторяй движения за тренером, а игра подскажет, что исправить." />
     <title>Motion Dance: танцуй перед камерой</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@500;700;900&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,600;0,800;0,900;1,900&display=swap" rel="stylesheet" />
   </head>
   <body>
     <canvas id="scene" aria-label="Сцена с танцором"></canvas>
 
     <header class="hud" id="hud" hidden>
-      <div class="hud-block">
-        <span class="label">Очки</span>
+      <div class="score-chip">
+        <span class="score-label">Очки</span>
         <strong id="hud-score">0</strong>
+        <span class="combo" id="hud-combo" hidden></span>
       </div>
-      <div class="hud-block stars-block" aria-label="Звёзды">
-        <div class="stars" id="hud-stars"></div>
-        <div class="star-bar"><i id="hud-star-bar"></i></div>
-      </div>
-      <div class="hud-block">
-        <span class="label">Комбо</span>
-        <strong id="hud-combo">0</strong>
+      <div class="gauge" aria-label="Звёзды">
+        <div class="gauge-track"><i id="hud-star-bar"></i></div>
+        <div class="gauge-stars" id="hud-stars"></div>
       </div>
     </header>
 

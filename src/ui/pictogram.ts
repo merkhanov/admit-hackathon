@@ -37,15 +37,19 @@ export function figureSegments(move: MoveTarget): { segs: Seg[]; head: { x: numb
   return { segs, head: { x: 32, y: neckY - 6 }, tilt: move.tilt };
 }
 
-/** SVG pictogram for the move strip and the warm-up card. */
-export function pictogramSvg(move: MoveTarget, color = 'currentColor'): string {
+/**
+ * SVG pictogram for the move strip and the warm-up card. `outline` draws a thick white halo
+ * under the figure, so it reads on any part of the stage.
+ */
+export function pictogramSvg(move: MoveTarget, { color = 'currentColor', outline = false }: { color?: string; outline?: boolean } = {}): string {
   const { segs, head, tilt } = figureSegments(move);
   const hipY = move.squat ? 44 : 40;
   const legs = segs.slice(0, move.squat ? 4 : 2);
   const upper = segs.slice(move.squat ? 4 : 2);
   const line = (s: Seg) => `<line x1="${s.x1.toFixed(1)}" y1="${s.y1.toFixed(1)}" x2="${s.x2.toFixed(1)}" y2="${s.y2.toFixed(1)}"/>`;
-  return `<svg viewBox="0 0 64 64" aria-hidden="true"><g fill="none" stroke="${color}" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round">
+  const figure = (stroke: string, width: number, headR: number) => `<g fill="none" stroke="${stroke}" stroke-width="${width}" stroke-linecap="round" stroke-linejoin="round">
     ${legs.map(line).join('')}
-    <g transform="rotate(${-tilt} 32 ${hipY})">${upper.map(line).join('')}<circle cx="${head.x}" cy="${head.y}" r="5" fill="${color}"/></g>
-  </g></svg>`;
+    <g transform="rotate(${-tilt} 32 ${hipY})">${upper.map(line).join('')}<circle cx="${head.x}" cy="${head.y}" r="${headR}" fill="${stroke}"/></g>
+  </g>`;
+  return `<svg viewBox="-4 -4 72 72" aria-hidden="true">${outline ? figure('#ffffff', 10, 6.5) : ''}${figure(color, 5, 5)}</svg>`;
 }

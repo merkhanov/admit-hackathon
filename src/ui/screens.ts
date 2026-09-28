@@ -36,18 +36,18 @@ function introHtml(demo: boolean): string {
   return `
   <section class="screen intro">
     <div class="intro-card">
-      <p class="eyebrow">Admit Hackathon · кейс Motion</p>
-      <h1 class="logo">Motion<span>Dance</span></h1>
+      <h1 class="logo">Motion <span>Dance</span></h1>
       <p class="lead">Танцуй перед камерой. Повторяй движения за тренером как в зеркале, а игра оценит каждое движение и подскажет, что поправить: какую руку поднять выше и насколько.</p>
       <ul class="gesture-grid">
         ${SHOWCASE.map((id) => `
           <li class="gesture-card">
-            <span class="gesture-icon">${pictogramSvg(MOVES[id])}</span>
+            <span class="gesture-icon">${pictogramSvg(MOVES[id], { outline: true })}</span>
             <strong>${MOVES[id].name}</strong>
           </li>`).join('')}
       </ul>
       <button class="cta" id="start-btn" type="button">${demo ? 'Запустить демо без камеры' : 'Включить камеру и танцевать'}</button>
       <p class="fineprint">Дальше мышь и клавиатура не нужны. Встань в 1,5–2 м от камеры, чтобы в кадре были голова, плечи и разведённые руки. Можно танцевать сидя. Видео обрабатывается прямо в браузере и никуда не отправляется, музыка генерируется там же.</p>
+      <p class="credit">Admit Hackathon 2026, кейс «Motion»</p>
     </div>
   </section>`;
 }
@@ -70,7 +70,7 @@ const errorHtml = (message: string) => `
 const calibHtml = () => `
   <section class="screen side">
     <div class="panel">
-      <p class="eyebrow">Калибровка</p>
+      <p class="chip">Калибровка</p>
       <h2>Встань ровно и опусти руки</h2>
       <p class="muted">Я запомню твою обычную позу. От неё считаются присед и наклоны.</p>
       <div class="ring" id="calib-ring" style="--p:0"><span id="calib-pct">0%</span></div>
@@ -84,9 +84,9 @@ function warmupHtml(step: number, done: boolean, skipped: boolean): string {
   return `
   <section class="screen side">
     <div class="panel ${skipped ? 'panel-skipped' : done ? 'panel-done' : ''}">
-      <p class="eyebrow">Разминка · ${step + 1} из ${WARMUP.length}</p>
+      <p class="chip">Разминка · ${step + 1} из ${WARMUP.length}</p>
       <div class="dots">${WARMUP.map((_, i) => `<i class="${i < step || (i === step && done) ? 'on' : ''}"></i>`).join('')}</div>
-      <span class="tutorial-icon">${pictogramSvg(MOVES[s.move])}</span>
+      <span class="tutorial-icon">${pictogramSvg(MOVES[s.move], { outline: true })}</span>
       <h2>${title}</h2>
       <p class="muted">${text}</p>
       <div class="hold-bar" aria-hidden="true"><i id="hold-bar"></i></div>
@@ -107,7 +107,7 @@ function resultsHtml(r: RoundResult): string {
   return `
   <section class="screen center over">
     <div class="over-card">
-      <p class="eyebrow">${r.place === 0 ? 'Новый рекорд!' : 'Танец окончен'}</p>
+      <p class="chip ${r.place === 0 ? 'chip-record' : ''}">${r.place === 0 ? 'Новый рекорд!' : 'Танец окончен'}</p>
       ${starRow(r.stars)}
       <div class="big-score">${r.points}</div>
       <ul class="stats">

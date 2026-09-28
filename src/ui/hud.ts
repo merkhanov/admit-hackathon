@@ -1,4 +1,4 @@
-import { maxPoints, RATING_NAMES, stars, type DanceState, type Rating } from '../dance/dance.ts';
+import { maxPoints, RATING_NAMES, STAR_THRESHOLDS, stars, type DanceState, type Rating } from '../dance/dance.ts';
 import { MOVES } from '../dance/moves.ts';
 import { beatTime, type Song } from '../dance/song.ts';
 import { pictogramSvg } from './pictogram.ts';
@@ -13,10 +13,12 @@ function el<T extends HTMLElement>(id: string, type: new () => T): T {
   return node;
 }
 
+const PICTO_COLORS = ['var(--bubblegum)', 'var(--sky)', 'var(--mint)', 'var(--sunshine)', 'var(--tangerine)'];
+
 /** Pixels the move strip scrolls per second. */
-const PICTO_SPEED = 150;
+const PICTO_SPEED = 170;
 /** Distance from the strip's left edge to the "now" marker. */
-const PICTO_NOW = 46;
+const PICTO_NOW = 60;
 
 /** Score, stars, combo, the verdict pop-up, the move strip, the camera window and the hint banner. */
 export class Hud {
@@ -40,12 +42,16 @@ export class Hud {
     this.hud.hidden = state === null;
     if (!state) return;
     this.score.textContent = String(state.points);
-    this.combo.textContent = state.combo > 1 ? `×${state.combo}` : '0';
-    this.starBar.style.setProperty('--p', String(Math.min(1, state.points / maxPoints(song) / 0.9)));
+    this.combo.hidden = state.combo < 2;
+    this.combo.textContent = `Комбо ×${state.combo}`;
+    // The gauge fills bottom to top; each star sits at the share of the maximum that lights it.
+    this.starBar.style.setProperty('--p', String(Math.min(1, state.points / maxPoints(song))));
     const n = stars(state.points, song);
     if (n !== this.shownStars) {
+      const gained = n > this.shownStars && this.shownStars >= 0;
       this.shownStars = n;
-      this.starsEl.innerHTML = Array.from({ length: 5 }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('');
+      this.starsEl.innerHTML = STAR_THRESHOLDS.map((t, i) =>
+        `<i class="${i < n ? 'on' : ''}${gained && i === n - 1 ? ' new' : ''}" style="--at:${t}"></i>`).join('');
     }
   }
 
@@ -76,12 +82,14 @@ export class Hud {
       if (!node) {
         node = document.createElement('div');
         node.className = 'picto';
-        node.innerHTML = pictogramSvg(MOVES[step.move]);
+        // Each pictogram gets the next colour of the palette, so neighbours are easy to tell apart.
+        node.style.setProperty('--picto', PICTO_COLORS[i % PICTO_COLORS.length]);
+        node.innerHTML = pictogramSvg(MOVES[step.move], { outline: true });
         this.track.append(node);
         this.pictoEls.set(i, node);
       }
       node.style.transform = `translateX(${x.toFixed(1)}px)`;
-      node.classList.toggle('now', x <= PICTO_NOW + 8 && x > PICTO_NOW - 90);
+      node.classList.toggle('now', x <= PICTO_NOW + 10 && x > PICTO_NOW - 100);
     });
     for (const [i, node] of this.pictoEls) {
       if (!seen.has(i)) { node.remove(); this.pictoEls.delete(i); }

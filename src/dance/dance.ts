@@ -97,8 +97,11 @@ export function stepDance(state: DanceState, song: Song, time: number, body: Bod
 
 export const maxPoints = (song: Song) => song.steps.length * RATING_POINTS.perfect;
 
+/** Share of the maximum score at which each of the five stars lights up. */
+export const STAR_THRESHOLDS: readonly number[] = [0.2, 0.4, 0.6, 0.75, 0.9];
+
 /** 0..5 stars from the share of the maximum score. */
 export function stars(points: number, song: Song): number {
   const share = points / maxPoints(song);
-  return [0.2, 0.4, 0.6, 0.75, 0.9].filter((t) => share >= t).length;
+  return STAR_THRESHOLDS.filter((t) => share >= t).length;
 }
