@@ -2,7 +2,7 @@
 
 Раннер на три дорожки, в котором персонажем управляешь своим телом через обычную веб-камеру. Кейс «Motion» Admit Hackathon 2026, направление A: игра.
 
-**Играть:** https://merkhanov.github.io/admit-hackathon/
+**Играть:** https://admit-hackathon.vercel.app
 
 Нужны браузер и веб-камера, ничего устанавливать не нужно. Проверено в Chrome. В Firefox и Safari игру пока не проверяли. Нажми «Включить камеру и играть» и разреши доступ к камере. Дальше мышь и клавиатура не нужны: калибровка, обучение, игра и перезапуск управляются движениями.
 
@@ -115,7 +115,15 @@ MediaPipe отдаёт только координаты точек тела. Р
 
 ## Деплой
 
-Каждый push в `main` запускает GitHub Actions (`.github/workflows/deploy.yml`): тесты, сборка и публикация на GitHub Pages.
+Игра опубликована на Vercel: https://admit-hackathon.vercel.app. Каждый push в `main` запускает GitHub Actions (`.github/workflows/ci.yml`) с тестами и сборкой.
+
+Опубликовать свою копию:
+
+```bash
+vercel link
+vercel build --prod
+vercel deploy --prebuilt --prod
+```
 
 ## Бонусы из кейса
 
