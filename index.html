@@ -1,13 +1,44 @@
 <!doctype html>
-<html lang="en">
+<html lang="ru">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>motion-scaffold</title>
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#03040a" />
+    <meta name="description" content="Раннер, которым управляешь телом через веб-камеру: прыжок, присед, наклоны и удар." />
+    <title>Motion Runner: беги телом</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=Unbounded:wght@600;800&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <canvas id="scene" aria-label="Игровое поле"></canvas>
+
+    <header class="hud" id="hud" hidden>
+      <div class="hud-block">
+        <span class="label">Очки</span>
+        <strong id="hud-score">0</strong>
+      </div>
+      <div class="hud-block">
+        <span class="label">Монеты</span>
+        <strong id="hud-coins">0</strong>
+      </div>
+      <div class="hud-block lives" id="hud-lives" aria-label="Жизни"></div>
+    </header>
+
+    <aside class="pip" id="pip" hidden>
+      <canvas id="pose"></canvas>
+      <span class="pip-label">Так тебя видит камера</span>
+    </aside>
+
+    <div class="banner" id="banner" hidden role="status" aria-live="polite">
+      <span class="banner-label" id="banner-label"></span>
+      <span class="banner-text" id="banner-text"></span>
+      <span class="banner-meter" id="banner-meter"><i></i></span>
+    </div>
+
+    <main id="screens"></main>
+
+    <script type="module" src="./src/main.ts"></script>
   </body>
 </html>
