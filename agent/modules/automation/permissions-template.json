@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run test:*)", "Bash(npm run typecheck)", "Bash(npm run lint)",
+      "Bash(npm run campaign:seed)", "Bash(npm run geo:report)",
+      "Bash(node scripts/queue-status*)", "Bash(npx tsx scripts/*--dry-run*)"
+    ],
+    "ask": [
+      "Bash(npm run go-live)", "Bash(npm run campaign)", "Bash(npm run cutover*)",
+      "Bash(*--send*)", "Bash(*--live*)"
+    ],
+    "deny": [
+      "Read(./.env*)", "Bash(cat *.env*)", "Bash(grep * .env*)", "Bash(node --env-file*--live*)"
+    ]
+  }
+}
