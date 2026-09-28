@@ -2,7 +2,8 @@ import type { Features, Side } from './features.ts';
 
 type Tracked = Extract<Features, { present: true }>;
 
-export type GestureId = 'jump' | 'punch' | 'duck' | 'leanL' | 'leanR';
+/** The only discrete gesture outside the song: a hand above the head starts and restarts a round. */
+export type GestureId = 'jump';
 
 export interface Calibration {
   midY: number;
@@ -24,100 +25,42 @@ export interface GestureSpec {
   nearP: number;
   /** Progress below which an active gesture is released (hysteresis). */
   exitP: number;
-  /** Held gestures emit Start/End events instead of a single event. */
-  held: boolean;
-  measure: (f: Tracked, calib: Calibration | null) => Measure;
+  measure: (f: Tracked) => Measure;
 }
 
 // Rough shoulder width in cm. Used only to phrase hints in human units.
 const CM_PER_SW = 38;
-export const JUMP_UP = 1.0;
-export const PUNCH_OUT = 1.2;
-export const PUNCH_ELBOW = 150;
-export const PUNCH_BAND = 0.5;
-export const DUCK_DROP = 0.45;
-export const LEAN_DEG = 14;
+/** Wrist above its own shoulder, in shoulder widths: about the top of the head. */
+export const HAND_UP = 1.0;
+/** How far a straight arm reaches sideways from the shoulder, in shoulder widths. */
+const ARM_REACH = 1.6;
 
 const cm = (shoulderWidths: number) => Math.max(1, Math.round(shoulderWidths * CM_PER_SW));
 const ARM: Record<Side, string> = { L: 'левую', R: 'правую' };
-const ARM_CAP: Record<Side, string> = { L: 'Левая', R: 'Правая' };
-const ELBOW: Record<Side, string> = { L: 'левый', R: 'правый' };
 const SIDES: readonly Side[] = ['R', 'L'];
 
-function measureJump(f: Tracked): Measure {
+function measureHandUp(f: Tracked): Measure {
   let best: Measure = { p: 0 };
   for (const s of SIDES) {
     const a = f.arms[s];
-    if (!a.ok || a.out > 0.9) continue; // a sideways arm belongs to the punch
-    const p = a.raise / JUMP_UP;
-    if (p > best.p) {
-      best = { p, hint: `Подними ${ARM[s]} руку выше головы, чтобы прыгнуть: не хватает ≈${cm(JUMP_UP - a.raise)} см` };
-    }
+    if (!a.ok || a.out > 0.9) continue;
+    const p = a.raise / HAND_UP;
+    if (p > best.p) best = { p, hint: `Подними ${ARM[s]} руку выше головы, чтобы начать: не хватает ≈${cm(HAND_UP - a.raise)} см` };
   }
   return best;
 }
-
-function measurePunch(f: Tracked): Measure {
-  let best: Measure = { p: 0 };
-  for (const s of SIDES) {
-    const a = f.arms[s];
-    if (Math.abs(a.raise) >= 1.0 || a.out < 0.5) continue;
-    if (!a.ok) {
-      // MediaPipe loses a wrist outside the frame. Say so instead of staying silent.
-      if (a.offSide) best = { p: 0.99, hint: `${ARM_CAP[s]} рука выходит за край кадра: отойди от камеры или встань ближе к центру` };
-      continue;
-    }
-    let p = Math.min(a.out / PUNCH_OUT, 1);
-    let hint: string | undefined;
-    if (Math.abs(a.raise) >= PUNCH_BAND) {
-      hint = a.raise > 0
-        ? `Опусти ${ARM[s]} руку до уровня плеча: сейчас выше на ≈${cm(a.raise)} см`
-        : `Подними ${ARM[s]} руку до уровня плеча: сейчас ниже на ≈${cm(-a.raise)} см`;
-    } else if (a.elbow < PUNCH_ELBOW) {
-      hint = `Выпрями ${ELBOW[s]} локоть: рука согнута на ${Math.round(180 - a.elbow)}°, для удара нужна прямая`;
-    } else if (a.out < PUNCH_OUT) {
-      hint = `Вытяни ${ARM[s]} руку дальше в сторону: ещё ≈${cm(PUNCH_OUT - a.out)} см`;
-    }
-    if (hint) p = Math.min(p, 0.99);
-    if (p > best.p) best = { p, hint };
-  }
-  return best;
-}
-
-function measureDuck(f: Tracked, calib: Calibration | null): Measure {
-  if (!calib) return { p: 0 };
-  const drop = (f.midY - calib.midY) / calib.sw;
-  return { p: drop / DUCK_DROP, hint: `Присядь ниже, чтобы пригнуться: ещё ≈${cm(DUCK_DROP - drop)} см` };
-}
-
-const measureLean = (dir: Side) => (f: Tracked): Measure => {
-  const deg = dir === 'L' ? f.tilt : -f.tilt;
-  return {
-    p: deg / LEAN_DEG,
-    hint: `Наклонись сильнее ${dir === 'L' ? 'влево' : 'вправо'}: сейчас ${Math.round(Math.max(0, deg))}°, нужно ${LEAN_DEG}°`,
-  };
-};
 
 export const GESTURES: Record<GestureId, GestureSpec> = {
-  jump: { name: 'Прыжок', nearP: 0.3, exitP: 0.7, held: false, measure: measureJump },
-  punch: { name: 'Удар', nearP: 0.58, exitP: 0.8, held: false, measure: measurePunch },
-  duck: { name: 'Присед', nearP: 0.4, exitP: 0.67, held: true, measure: measureDuck },
-  leanL: { name: 'Наклон влево', nearP: 0.45, exitP: 0.65, held: false, measure: measureLean('L') },
-  leanR: { name: 'Наклон вправо', nearP: 0.45, exitP: 0.65, held: false, measure: measureLean('R') },
+  jump: { name: 'Рука вверх', nearP: 0.3, exitP: 0.7, measure: measureHandUp },
 };
 
-export const GESTURE_IDS: readonly GestureId[] = ['jump', 'punch', 'duck', 'leanL', 'leanR'];
-
-/** Raising one arm tilts the shoulders, so leans don't count while an arm is busy. */
-export function armBusy(f: Tracked): boolean {
-  return SIDES.some((s) => f.arms[s].ok && (f.arms[s].raise > 0.3 || f.arms[s].out > 0.7));
-}
+export const GESTURE_IDS: readonly GestureId[] = ['jump'];
 
 /**
- * Largest shoulder width (fraction of frame height) at which a centred player's straight sideways arm
- * still fits in the frame: half the frame width must hold half the shoulders plus the arm.
+ * Largest shoulder width (fraction of frame height) at which a centred player's arms spread
+ * sideways still fit in the frame: half the frame width must hold half the shoulders plus an arm.
  */
-export const punchFitLimit = (aspect: number): number => aspect / 2 / (0.5 + PUNCH_OUT + 0.1);
+export const armsFitLimit = (aspect: number): number => aspect / 2 / (0.5 + ARM_REACH);
 
 /** Returns a concrete framing problem, or null when the upper body is usable. */
 export function framingProblem(f: Features): string | null {

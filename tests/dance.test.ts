@@ -1,0 +1,130 @@
+import { describe, expect, it } from 'vitest';
+import { newDance, rate, stars, stepDance, maxPoints, type Verdict } from '../src/dance/dance.ts';
+import { bodyAngles, evaluate } from '../src/dance/judge.ts';
+import { MOVE_IDS, MOVES, type MoveId } from '../src/dance/moves.ts';
+import { INPUT_LAG_S, SONG, songDuration, stepAt } from '../src/dance/song.ts';
+import { paramsFor } from '../src/dance/targetPose.ts';
+import { features } from '../src/pose/features.ts';
+import { NEUTRAL, SYNTH_ASPECT, seededRandom, synthPose, type SynthParams } from '../src/pose/synthetic.ts';
+
+const neutral = features(synthPose(NEUTRAL), SYNTH_ASPECT);
+if (!neutral.present) throw new Error('neutral pose must be visible');
+const CALIB = { midY: neutral.midY, sw: neutral.sw };
+
+function bodyFor(params: Partial<SynthParams>, noise = 0, random = Math.random) {
+  const body = bodyAngles(features(synthPose({ ...NEUTRAL, ...params }, noise, random), SYNTH_ASPECT), CALIB);
+  if (!body) throw new Error('body must be visible');
+  return body;
+}
+
+const scoreOf = (target: MoveId, performed: MoveId) => evaluate(MOVES[target], bodyFor(paramsFor(MOVES[performed]))).score;
+
+describe('moves', () => {
+  it.each(MOVE_IDS)('%s performed exactly scores Perfect', (id) => {
+    expect(rate(scoreOf(id, id))).toBe('perfect');
+  });
+
+  it('every move is told apart from every other move', () => {
+    const confusions: string[] = [];
+    for (const target of MOVE_IDS) {
+      for (const performed of MOVE_IDS) {
+        if (target !== performed && scoreOf(target, performed) >= 0.65) confusions.push(`${performed} counted as ${target}`);
+      }
+    }
+    expect(confusions).toEqual([]);
+  });
+
+  it('standing still is a miss for every move', () => {
+    for (const id of MOVE_IDS) expect(rate(evaluate(MOVES[id], bodyFor({})).score)).toBe('miss');
+  });
+});
+
+describe('corrections', () => {
+  it('a low left arm gets "raise it" with the angle', () => {
+    const e = evaluate(MOVES.up, bodyFor(paramsFor(MOVES.up, { L: -45 })));
+    expect(e.worst?.hint).toBe('Левая рука: подними выше на 45°');
+  });
+
+  it('an arm too high on a sideways move gets "lower it"', () => {
+    const e = evaluate(MOVES.wings, bodyFor(paramsFor(MOVES.wings, { R: 40 })));
+    expect(e.worst?.hint).toBe('Правая рука: опусти ниже на 40°');
+  });
+
+  it('a straight arm on the muscles move asks to bend the elbow', () => {
+    const e = evaluate(MOVES.muscles, bodyFor(paramsFor(MOVES.vee)));
+    expect(e.worst?.hint).toMatch(/Согни (левый|правый) локоть: сейчас \d+°, нужно около 80°/);
+  });
+
+  it('a weak lean asks to lean further, with degrees', () => {
+    const e = evaluate(MOVES.leanL, bodyFor({ ...paramsFor(MOVES.leanL), tilt: 4 }));
+    expect(e.worst?.hint).toBe('Наклонись влево сильнее: сейчас 4°, нужно 15°');
+  });
+
+  it('a shallow squat asks to go lower', () => {
+    const e = evaluate(MOVES.squat, bodyFor({ ...paramsFor(MOVES.squat), drop: 0.1 }));
+    expect(e.worst?.hint).toContain('Присядь ниже');
+  });
+
+  it('a hidden arm is named, not silently failed', () => {
+    const e = evaluate(MOVES.wings, bodyFor({ ...paramsFor(MOVES.wings), sw: 0.5, sy: 0.45 }));
+    expect(e.worst?.hint).toMatch(/Не вижу (левую|правую) руку/);
+  });
+});
+
+/** Plays the whole song with a dancer that performs each move `lag` seconds after the coach. */
+function playSong({ lag, errorOn, noise = 0 }: { lag: number; errorOn?: MoveId; noise?: number }) {
+  const random = seededRandom(5);
+  let state = newDance();
+  const verdicts: Verdict[] = [];
+  for (let t = 0; t <= songDuration(SONG) + 1; t += 1 / 30) {
+    const i = stepAt(SONG, t - lag);
+    const move = i >= 0 ? SONG.steps[i].move : null;
+    const params = move ? paramsFor(MOVES[move], move === errorOn ? { L: -50 } : {}) : {};
+    const r = stepDance(state, SONG, t, bodyFor(params, noise, random));
+    state = r.state;
+    verdicts.push(...r.verdicts);
+  }
+  return { state, verdicts };
+}
+
+describe('timing', () => {
+  it('a dancer exactly on the beat, seen through the input lag, gets Perfect on every move', () => {
+    const { state, verdicts } = playSong({ lag: INPUT_LAG_S });
+    expect(verdicts).toHaveLength(SONG.steps.length);
+    expect(state.counts.perfect).toBe(SONG.steps.length);
+    expect(state.finished).toBe(true);
+    expect(stars(state.points, SONG)).toBe(5);
+  });
+
+  it('camera jitter does not cost Perfects', () => {
+    const { state } = playSong({ lag: INPUT_LAG_S, noise: 0.01 });
+    expect(state.counts.perfect).toBeGreaterThanOrEqual(SONG.steps.length - 1);
+  });
+
+  it('one wrong arm on a move gives that move a correction, the rest stay Perfect', () => {
+    const { verdicts } = playSong({ lag: INPUT_LAG_S, errorOn: 'muscles' });
+    const wrong = verdicts.filter((v) => v.rating !== 'perfect');
+    expect(wrong.every((v) => v.move === 'muscles')).toBe(true);
+    expect(wrong[0].hint).toMatch(/Левая рука: подними выше/);
+  });
+
+  it('the correction names the arm that stayed wrong, not one that swept through the target', () => {
+    const { verdicts } = playSong({ lag: INPUT_LAG_S, errorOn: 'discoR' });
+    const wrong = verdicts.filter((v) => v.move === 'discoR');
+    expect(wrong.length).toBeGreaterThan(0);
+    for (const v of wrong) expect(v.part).toBe('armL');
+  });
+
+  it('nobody in frame is a Miss with a framing hint', () => {
+    let state = newDance();
+    const verdicts: Verdict[] = [];
+    for (let t = 0; t < 7; t += 1 / 30) {
+      const r = stepDance(state, SONG, t, null);
+      state = r.state;
+      verdicts.push(...r.verdicts);
+    }
+    expect(verdicts[0]).toMatchObject({ rating: 'miss', hint: expect.stringContaining('Не видно тебя') });
+    expect(state.points).toBe(0);
+    expect(maxPoints(SONG)).toBe(SONG.steps.length * 100);
+  });
+});

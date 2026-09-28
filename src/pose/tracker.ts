@@ -1,5 +1,5 @@
 import { features, type Features } from './features.ts';
-import { armBusy, framingProblem, GESTURE_IDS, GESTURES, punchFitLimit, type Calibration, type GestureId } from './gestures.ts';
+import { armsFitLimit, framingProblem, GESTURE_IDS, GESTURES, type Calibration, type GestureId } from './gestures.ts';
 import type { Landmark, Pose } from './landmarks.ts';
 
 /** A near-miss must hold this long before a hint, so a normal fast move never triggers one. */
@@ -12,7 +12,7 @@ export const CALIB_MS = 1000;
 /** Landmark smoothing factor, 1 = no smoothing. */
 export const SMOOTHING = 0.55;
 
-export type TrackerEvent = 'jump' | 'punch' | 'duckStart' | 'duckEnd' | 'leanL' | 'leanR' | 'calibrated';
+export type TrackerEvent = 'jump' | 'calibrated';
 
 export type Hint =
   | { kind: 'frame'; text: string }
@@ -39,7 +39,6 @@ export interface TrackerState {
 export interface GestureReadout {
   p: number;
   phase: 'idle' | 'active';
-  suppressed: boolean;
   hinting: boolean;
   /** Milliseconds spent in the near zone so far. */
   nearFor: number;
@@ -56,9 +55,7 @@ export interface TrackerOutput {
   pose: Pose | null;
 }
 
-const freshGestures = (): Record<GestureId, GestureState> => ({
-  jump: idle(), punch: idle(), duck: idle(), leanL: idle(), leanR: idle(),
-});
+const freshGestures = (): Record<GestureId, GestureState> => ({ jump: idle() });
 function idle(): GestureState {
   return { phase: 'idle', nearSince: null, nearLostAt: null, lastExit: -Infinity };
 }
@@ -105,10 +102,7 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
   if (frame || !f.present) {
     for (const id of GESTURE_IDS) {
       const g = gestures[id];
-      if (g.phase === 'active') {
-        g.lastExit = t;
-        if (GESTURES[id].held) events.push('duckEnd');
-      }
+      if (g.phase === 'active') g.lastExit = t;
       gestures[id] = { ...idle(), lastExit: g.lastExit };
     }
     hints.push({ kind: 'frame', text: frame ?? 'Не вижу тебя: встань перед камерой' });
@@ -119,13 +113,13 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
   if (state.stage.kind === 'calibrating') {
     const down = (['L', 'R'] as const).every((s) => !f.arms[s].ok || f.arms[s].raise < -0.4);
     const straight = Math.abs(f.tilt) <= 5;
-    const fits = f.sw <= punchFitLimit(f.aspect);
+    const fits = f.sw <= armsFitLimit(f.aspect);
     if (!down || !straight || !fits) {
       hints.push({
         kind: 'calib',
         progress: 0,
         text: !fits
-          ? 'Отойди подальше: вытянутая в сторону рука должна помещаться в кадр'
+          ? 'Отойди подальше: разведённые в стороны руки должны помещаться в кадр'
           : !down ? 'Опусти руки: запоминаю исходную позу' : 'Выпрямись, не наклоняйся: запоминаю исходную позу',
       });
       return out(startCalibration());
@@ -142,23 +136,19 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
     return out(next);
   }
 
-  const calib = state.stage.calib;
-  const busy = armBusy(f);
   for (const id of GESTURE_IDS) {
     const spec = GESTURES[id];
     const g = gestures[id];
-    const suppressed = (id === 'leanL' || id === 'leanR') && busy;
-    const m = suppressed ? { p: 0 } : spec.measure(f, calib);
+    const m = spec.measure(f);
 
     if (g.phase === 'idle' && m.p >= 1) {
       g.phase = 'active';
       g.nearSince = null;
       g.nearLostAt = null;
-      events.push(id === 'duck' ? 'duckStart' : id);
+      events.push(id);
     } else if (g.phase === 'active' && m.p < spec.exitP) {
       g.phase = 'idle';
       g.lastExit = t;
-      if (spec.held) events.push('duckEnd');
     }
 
     let hinting = false;
@@ -181,7 +171,6 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
     readout[id] = {
       p: m.p,
       phase: g.phase,
-      suppressed,
       hinting,
       nearFor: g.nearSince === null ? 0 : t - g.nearSince,
     };

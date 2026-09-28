@@ -1,17 +1,18 @@
 export interface ScoreEntry {
   score: number;
-  coins: number;
+  /** 0..5 */
+  stars: number;
   /** ISO timestamp. */
   at: string;
 }
 
-const KEY = 'motion-runner.leaderboard.v1';
+const KEY = 'motion-dance.leaderboard.v1';
 export const LEADERBOARD_SIZE = 5;
 
 function isEntry(v: unknown): v is ScoreEntry {
   return typeof v === 'object' && v !== null
     && 'score' in v && typeof v.score === 'number'
-    && 'coins' in v && typeof v.coins === 'number'
+    && 'stars' in v && typeof v.stars === 'number'
     && 'at' in v && typeof v.at === 'string';
 }
 

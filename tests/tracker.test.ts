@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NEUTRAL, SYNTH_ASPECT, seededRandom, synthPose, type SynthParams } from '../src/pose/synthetic.ts';
-import { initTracker, recalibrate, stepTracker, type Hint, type TrackerEvent, type TrackerState } from '../src/pose/tracker.ts';
+import { calibration, initTracker, recalibrate, stepTracker, type Hint, type TrackerEvent, type TrackerState } from '../src/pose/tracker.ts';
 
 const FRAME_MS = 33;
 
@@ -67,17 +67,18 @@ describe('calibration', () => {
     expect(p.lastHints[0]).toMatchObject({ kind: 'frame', text: expect.stringContaining('Не видно головы') });
   });
 
-  it('recalibrate forgets the old baseline', () => {
-    const p = new Player().calibrated().hold({ drop: 0.3 }, 1000);
-    expect(p.fixHint()).toContain('Присядь ниже');
+  it('recalibrate forgets the old baseline and learns the new one', () => {
+    const p = new Player().calibrated();
+    const before = calibration(p.state);
     p.state = recalibrate(p.state);
+    expect(p.state.stage.kind).toBe('calibrating');
     p.hold({ drop: 0.3 }, 1300);
-    expect(p.fixHint()).toBeUndefined();
-    expect(p.state.stage.kind).toBe('tracking');
+    const after = calibration(p.state);
+    expect(before && after && after.midY > before.midY).toBe(true);
   });
 });
 
-describe('jump', () => {
+describe('hand above the head (start and restart)', () => {
   it('a normal jump fires once and never shows the "higher" hint', () => {
     const p = new Player().calibrated();
     p.hold(ARM_HALF, 150).hold(ARM_UP, 500).hold(ARM_HALF, 150).hold({}, 500);
@@ -89,7 +90,7 @@ describe('jump', () => {
     const p = new Player().calibrated().hold(ARM_HALF, 300);
     expect(p.fixHint()).toBeUndefined();
     p.hold(ARM_HALF, 300);
-    expect(p.fixHint()).toMatch(/Подними правую руку выше головы.*не хватает ≈\d+ см/);
+    expect(p.fixHint()).toMatch(/Подними правую руку выше головы, чтобы начать: не хватает ≈\d+ см/);
     p.hold(ARM_UP, 300);
     expect(p.events).toEqual(['jump']);
     expect(p.fixHint()).toBeUndefined();
@@ -110,61 +111,19 @@ describe('jump', () => {
   });
 });
 
-describe('lean', () => {
-  it('maps the player\'s own left to leanL and fires once per lean', () => {
-    const p = new Player().calibrated().hold({ tilt: 20 }, 1400).hold({}, 400).hold({ tilt: -20 }, 400);
-    expect(p.events).toEqual(['leanL', 'leanR']);
-  });
-
-  it('a weak lean gets a hint with degrees', () => {
-    const p = new Player().calibrated().hold({ tilt: 9 }, 600);
-    expect(p.fixHint()).toBe('Наклонись сильнее влево: сейчас 9°, нужно 14°');
-  });
-
-  it('does not count a lean while an arm is raised', () => {
-    const p = new Player().calibrated().hold({ ...ARM_UP, tilt: 15 }, 500);
-    expect(p.events).toEqual(['jump']);
-  });
-});
-
-describe('punch', () => {
-  it('names the exact problem: bent elbow, then height', () => {
-    const p = new Player().calibrated().hold({ rUp: 0, rOut: 1.0 }, 600);
-    expect(p.fixHint()).toMatch(/Выпрями правый локоть: рука согнута на \d+°/);
-    p.hold({ rUp: 0, rOut: 1.6 }, 300);
-    expect(p.events).toEqual(['punch']);
-    p.hold({}, 800).hold({ rUp: 0.7, rOut: 1.35 }, 600);
-    expect(p.fixHint()).toMatch(/Опусти правую руку до уровня плеча/);
-  });
-});
-
 describe('distance to the camera', () => {
-  it('calibration asks to step back until a sideways arm fits in the frame', () => {
+  it('calibration asks to step back until arms spread sideways fit in the frame', () => {
     const p = new Player().hold({ sw: 0.6, sy: 0.5 }, 1500);
     expect(p.state.stage.kind).toBe('calibrating');
     expect(p.lastHints[0]).toMatchObject({ kind: 'calib', text: expect.stringContaining('Отойди подальше') });
-    p.hold({ sw: 0.3 }, 1200);
+    p.hold({ sw: 0.28 }, 1200);
     expect(p.events).toContain('calibrated');
   });
 
-  it('a punch at the calibration limit still fits and registers', () => {
-    const p = new Player().hold({ sw: 0.3 }, 1200);
-    p.events = [];
-    p.hold({ sw: 0.3, rUp: 0, rOut: 1.6 }, 300);
-    expect(p.events).toEqual(['punch']);
-  });
-
-  it('a wrist leaving through the side of the frame gets a hint, not silence', () => {
-    const p = new Player().calibrated().hold({ sw: 0.5, sy: 0.45, rUp: 0, rOut: 1.6 }, 600);
-    expect(p.events).toEqual([]);
-    expect(p.fixHint()).toContain('выходит за край кадра');
-  });
-});
-
-describe('duck', () => {
-  it('emits start and end around a held squat', () => {
-    const p = new Player().calibrated().hold({ drop: 0.6 }, 800).hold({}, 400);
-    expect(p.events).toEqual(['duckStart', 'duckEnd']);
+  it('at the calibration limit, arms spread sideways stay inside the frame', () => {
+    const lm = synthPose({ ...NEUTRAL, sw: 0.3, rUp: 0, rOut: 1.6, lUp: 0, lOut: 1.6 });
+    for (const i of [15, 16]) expect(lm[i].x).toBeGreaterThanOrEqual(0);
+    for (const i of [15, 16]) expect(lm[i].x).toBeLessThanOrEqual(1);
   });
 });
 

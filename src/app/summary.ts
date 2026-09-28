@@ -1,54 +1,46 @@
-import type { HazardType, GameStats } from '../game/game.ts';
-import { GESTURE_IDS, type GestureId } from '../pose/gestures.ts';
-import type { Hint } from '../pose/tracker.ts';
+import type { DanceState, Verdict } from '../dance/dance.ts';
+import { PART_NAMES, type PartId } from '../dance/judge.ts';
 
-export type HintCounts = Record<GestureId, number>;
+/** Per body part: how many moves it spoiled, and the latest correction for it. */
+export type MistakeLog = Partial<Record<PartId, { n: number; hint: string }>>;
 
-export const emptyHintCounts = (): HintCounts => ({ jump: 0, punch: 0, duck: 0, leanL: 0, leanR: 0 });
-
-/** Counts a hint once when it appears, not on every frame it stays on screen. */
-export function countHintOnsets(
-  shown: ReadonlySet<GestureId>,
-  hints: readonly Hint[],
-  counts: HintCounts,
-): { shown: Set<GestureId>; counts: HintCounts } {
-  const now = new Set<GestureId>();
-  for (const h of hints) if (h.kind === 'fix') now.add(h.gesture);
-  const next = { ...counts };
-  for (const id of now) if (!shown.has(id)) next[id]++;
-  return { shown: now, counts: next };
+export function logVerdict(log: MistakeLog, v: Verdict): MistakeLog {
+  if (v.rating === 'perfect' || !v.part || !v.hint) return log;
+  const prev = log[v.part];
+  return { ...log, [v.part]: { n: (prev?.n ?? 0) + 1, hint: v.hint } };
 }
-
-const GESTURE_ADVICE: Record<GestureId, (n: number) => string> = {
-  jump: (n) => `Прыжок: ${n} ${times(n)} рука не дошла до макушки. Поднимай кисть выше головы.`,
-  punch: (n) => `Удар: ${n} ${times(n)} рука была согнута или не на уровне плеча. Держи её прямой и горизонтально.`,
-  duck: (n) => `Присед: ${n} ${times(n)} ты присел недостаточно. Опускай плечи ниже.`,
-  leanL: (n) => `Наклон влево: ${n} ${times(n)} наклон был слишком слабым. Клонись увереннее.`,
-  leanR: (n) => `Наклон вправо: ${n} ${times(n)} наклон был слишком слабым. Клонись увереннее.`,
-};
-
-const HIT_ADVICE: Record<HazardType, (n: number) => string> = {
-  barrier: (n) => `Барьер сбил тебя ${n} ${times(n)}. Поднимай руку заранее, прыжок длится меньше секунды.`,
-  bar: (n) => `Перекладина сбила тебя ${n} ${times(n)}. Приседай и держи присед, пока она не пройдёт.`,
-  wall: (n) => `В стену ты врезался ${n} ${times(n)}. Её не перепрыгнуть, уходи на другую дорожку наклоном.`,
-  crate: (n) => `В ящик ты врезался ${n} ${times(n)}. Бей, когда он близко: вытяни прямую руку в сторону.`,
-};
 
 function times(n: number): string {
   const d = n % 10, dd = n % 100;
   return d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? 'раза' : 'раз';
 }
 
-/** The three most frequent mistakes of the round, phrased as advice. */
-export function adviceLines(counts: HintCounts, stats: GameStats): string[] {
-  const items: { n: number; text: string }[] = [];
-  for (const id of GESTURE_IDS) if (counts[id] > 0) items.push({ n: counts[id], text: GESTURE_ADVICE[id](counts[id]) });
-  for (const [type, n] of Object.entries(stats.hits)) {
-    if (n > 0 && isHazard(type)) items.push({ n: n + 0.5, text: HIT_ADVICE[type](n) });
-  }
-  return items.sort((a, b) => b.n - a.n).slice(0, 3).map((i) => i.text);
+/** The three parts that cost the most moves, each with a concrete example of the fix. */
+export function adviceLines(log: MistakeLog): string[] {
+  const entries: { part: PartId; n: number; hint: string }[] = [];
+  for (const [part, e] of Object.entries(log)) if (e && isPart(part)) entries.push({ part, ...e });
+  return entries
+    .sort((a, b) => b.n - a.n)
+    .slice(0, 3)
+    .map((e) => `${PART_NAMES[e.part]}: ${e.n} ${times(e.n)} мимо цели. Последняя подсказка: «${e.hint}».`);
 }
 
-function isHazard(s: string): s is HazardType {
-  return s === 'barrier' || s === 'bar' || s === 'wall' || s === 'crate';
+export interface PartAccuracy {
+  part: PartId;
+  name: string;
+  /** 0..100 */
+  pct: number;
+}
+
+/** Average match of each body part at the best moment of every move, weakest first. */
+export function partAccuracy(state: DanceState): PartAccuracy[] {
+  const out: PartAccuracy[] = [];
+  for (const [part, acc] of Object.entries(state.parts)) {
+    if (acc && acc.n > 0 && isPart(part)) out.push({ part, name: PART_NAMES[part], pct: Math.round((acc.sum / acc.n) * 100) });
+  }
+  return out.sort((a, b) => a.pct - b.pct);
+}
+
+function isPart(s: string): s is PartId {
+  return s in PART_NAMES;
 }

@@ -1,94 +1,104 @@
 import { describe, expect, it } from 'vitest';
-import { cameraReady, COUNTDOWN_S, initFlow, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, STEP_TIMEOUT_S, TUTORIAL, type Flow, type FlowCommand } from '../src/app/flow.ts';
-import type { Hint, TrackerEvent } from '../src/pose/tracker.ts';
-import type { GestureId } from '../src/pose/gestures.ts';
-import { adviceLines, countHintOnsets, emptyHintCounts } from '../src/app/summary.ts';
+import {
+  cameraReady, COUNTDOWN_S, initFlow, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, STEP_TIMEOUT_S,
+  WARMUP, WARMUP_HOLD_S, type Flow, type FlowCommand, type FlowInput,
+} from '../src/app/flow.ts';
 import { insertScore, parseLeaderboard } from '../src/app/leaderboard.ts';
+import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from '../src/app/summary.ts';
+import { newDance } from '../src/dance/dance.ts';
 
-function tick(flow: Flow, events: TrackerEvent[] = [], dt = 0.1, gameOver = false) {
-  return stepFlow(flow, { events, dt, gameOver });
-}
+const DT = 0.1;
 
-function wait(flow: Flow, seconds: number, gameOver = false) {
+function run(flow: Flow, seconds: number, input: Partial<FlowInput> = {}) {
   const commands: FlowCommand[] = [];
   let f = flow;
-  for (let t = 0; t < seconds; t += 0.1) {
-    const r = tick(f, [], 0.1, gameOver);
+  for (let t = 0; t < seconds - 1e-9; t += DT) {
+    const r = stepFlow(f, { events: [], dt: DT, poseScore: null, songOver: false, ...input });
     f = r.flow;
     commands.push(...r.commands);
   }
   return { flow: f, commands };
 }
 
-describe('flow', () => {
-  it('goes intro, calibration, full tutorial, countdown, round', () => {
-    let f = startRequested(initFlow());
-    const ready = cameraReady(f);
-    expect(ready.commands).toEqual(['recalibrate']);
-    f = tick(ready.flow, ['calibrated']).flow;
-    expect(f.phase).toEqual({ kind: 'tutorial', step: 0, doneAt: null, skipped: false });
+const calibrated = () => stepFlow(cameraReady(startRequested(initFlow())).flow, { events: ['calibrated'], dt: DT, poseScore: null, songOver: false }).flow;
 
-    for (const step of TUTORIAL) {
-      const r = tick(f, [step.event]);
-      expect(r.commands).toContain('stepDone');
-      f = r.flow;
-      const stepBefore = f.phase.kind === 'tutorial' ? f.phase.step : -1;
-      let waited = 0;
-      while (f.phase.kind === 'tutorial' && f.phase.step === stepBefore) {
-        f = tick(f).flow;
-        waited += 0.1;
+describe('flow', () => {
+  it('goes calibration, warm-up, countdown, song, results', () => {
+    let f = calibrated();
+    expect(f.phase).toMatchObject({ kind: 'warmup', step: 0 });
+    for (let i = 0; i < WARMUP.length; i++) {
+      const held = run(f, WARMUP_HOLD_S + DT, { poseScore: 0.95 });
+      expect(held.commands).toContain('stepDone');
+      f = held.flow;
+      let paused = 0;
+      while (f.phase.kind === 'warmup' && f.phase.step === i) {
+        f = stepFlow(f, { events: [], dt: DT, poseScore: null, songOver: false }).flow;
+        paused += DT;
       }
-      expect(waited).toBeGreaterThanOrEqual(STEP_PAUSE_S);
+      // One tick of the pause already ran inside the hold loop above.
+      expect(paused).toBeGreaterThanOrEqual(STEP_PAUSE_S - DT - 1e-9);
     }
     expect(f.phase.kind).toBe('countdown');
-
-    const countdown = wait(f, COUNTDOWN_S + 0.1);
+    const countdown = run(f, COUNTDOWN_S + DT);
     expect(countdown.commands.filter((c) => c === 'tick')).toHaveLength(3);
-    expect(countdown.commands).toContain('newGame');
-    expect(countdown.flow.phase.kind).toBe('playing');
+    expect(countdown.commands).toContain('startSong');
+    expect(countdown.flow.phase.kind).toBe('dancing');
+    const end = stepFlow(countdown.flow, { events: [], dt: DT, poseScore: null, songOver: true });
+    expect(end.commands).toEqual(['finish']);
+    expect(end.flow.phase.kind).toBe('results');
   });
 
-  it('a tutorial step ignores the wrong gesture', () => {
-    const f = tick(cameraReady(startRequested(initFlow())).flow, ['calibrated']).flow;
-    const r = tick(f, ['leanL']);
-    expect(r.flow.phase).toMatchObject({ kind: 'tutorial', step: 0, doneAt: null });
+  it('a warm-up pose must be held, a brief touch does not count', () => {
+    let f = calibrated();
+    f = run(f, 0.2, { poseScore: 0.95 }).flow;
+    f = run(f, 0.2, { poseScore: 0.3 }).flow;
+    f = run(f, 0.2, { poseScore: 0.95 }).flow;
+    expect(f.phase).toMatchObject({ kind: 'warmup', step: 0, doneAt: null });
   });
 
-  it('a gesture that never registers does not trap the player in the tutorial', () => {
-    let f = tick(cameraReady(startRequested(initFlow())).flow, ['calibrated']).flow;
-    const r = wait(f, STEP_TIMEOUT_S + 0.2);
+  it('a pose that never matches does not trap the player', () => {
+    const r = run(calibrated(), STEP_TIMEOUT_S + DT, { poseScore: 0.2 });
     expect(r.commands).toContain('stepSkipped');
-    expect(r.flow.phase).toMatchObject({ kind: 'tutorial', step: 0, skipped: true });
-    f = wait(r.flow, STEP_PAUSE_S + 0.2).flow;
-    expect(f.phase).toMatchObject({ kind: 'tutorial', step: 1, doneAt: null, skipped: false });
+    expect(r.flow.phase).toMatchObject({ kind: 'warmup', skipped: true });
   });
 
-  it('after game over, a jump restarts only after the lock, with recalibration and no tutorial', () => {
-    let f: Flow = { phase: { kind: 'playing' }, t: 0, seenTutorial: true };
-    f = tick(f, [], 0.1, true).flow;
-    expect(f.phase.kind).toBe('over');
-    expect(tick(f, ['jump']).flow.phase.kind).toBe('over');
-    f = wait(f, RESTART_LOCK_S).flow;
-    const r = tick(f, ['jump']);
+  it('a raised hand during the song does not restart anything', () => {
+    const f: Flow = { phase: { kind: 'dancing' }, t: 5, seenWarmup: true };
+    const r = stepFlow(f, { events: ['jump'], dt: DT, poseScore: null, songOver: false });
+    expect(r.flow.phase.kind).toBe('dancing');
+    expect(r.commands).toEqual([]);
+  });
+
+  it('results restart only after the lock, skip the warm-up and recalibrate', () => {
+    let f: Flow = { phase: { kind: 'results' }, t: 0, seenWarmup: true };
+    expect(stepFlow(f, { events: ['jump'], dt: DT, poseScore: null, songOver: false }).flow.phase.kind).toBe('results');
+    f = run(f, RESTART_LOCK_S).flow;
+    const r = stepFlow(f, { events: ['jump'], dt: DT, poseScore: null, songOver: false });
     expect(r.commands).toEqual(['recalibrate']);
-    expect(tick(r.flow, ['calibrated']).flow.phase.kind).toBe('countdown');
+    const next = stepFlow(r.flow, { events: ['calibrated'], dt: DT, poseScore: null, songOver: false });
+    expect(next.flow.phase.kind).toBe('countdown');
   });
 });
 
 describe('round summary', () => {
-  it('counts a hint once per appearance and ranks the advice', () => {
-    let shown: ReadonlySet<GestureId> = new Set();
-    let counts = emptyHintCounts();
-    const jumpHint: Hint = { kind: 'fix', gesture: 'jump', p: 0.5, text: '' };
-    for (const hints of [[jumpHint], [jumpHint], [], [jumpHint]]) {
-      const r = countHintOnsets(shown, hints, counts);
-      shown = r.shown;
-      counts = r.counts;
-    }
-    expect(counts.jump).toBe(2);
-    const lines = adviceLines(counts, { cleared: 0, dodged: 0, hits: { barrier: 3, bar: 0, wall: 0, crate: 0 } });
-    expect(lines[0]).toContain('Барьер сбил тебя 3 раза');
-    expect(lines[1]).toContain('Прыжок: 2 раза');
+  it('ranks the body parts that cost the most moves, with the latest correction', () => {
+    let log: MistakeLog = {};
+    const miss = (part: 'armL' | 'tilt', hint: string) => ({ index: 0, move: 'up' as const, rating: 'ok' as const, score: 0.5, hint, part });
+    log = logVerdict(log, miss('armL', 'Левая рука: подними выше на 30°'));
+    log = logVerdict(log, miss('armL', 'Левая рука: подними выше на 25°'));
+    log = logVerdict(log, miss('tilt', 'Наклонись влево сильнее'));
+    log = logVerdict(log, { index: 1, move: 'up', rating: 'perfect', score: 1, hint: null, part: null });
+    const lines = adviceLines(log);
+    expect(lines[0]).toBe('Левая рука: 2 раза мимо цели. Последняя подсказка: «Левая рука: подними выше на 25°».');
+    expect(lines[1]).toContain('Наклон корпуса: 1 раз');
+  });
+
+  it('reports each part accuracy, weakest first', () => {
+    const s = { ...newDance(), parts: { armL: { sum: 1.5, n: 2 }, armR: { sum: 1.9, n: 2 } } };
+    expect(partAccuracy(s)).toEqual([
+      { part: 'armL', name: 'Левая рука', pct: 75 },
+      { part: 'armR', name: 'Правая рука', pct: 95 },
+    ]);
   });
 });
 
@@ -99,11 +109,10 @@ describe('leaderboard', () => {
   });
 
   it('keeps the top five and reports the place', () => {
-    let board = [100, 80, 60, 40, 20].map((score) => ({ score, coins: 0, at: '2026-09-28T10:00:00Z' }));
-    const r = insertScore(board, { score: 70, coins: 1, at: '2026-09-28T11:00:00Z' });
-    board = r.board;
+    const board = [5000, 4000, 3000, 2000, 1000].map((score) => ({ score, stars: 3, at: '2026-09-28T10:00:00Z' }));
+    const r = insertScore(board, { score: 3500, stars: 4, at: '2026-09-28T11:00:00Z' });
     expect(r.place).toBe(2);
-    expect(board.map((e) => e.score)).toEqual([100, 80, 70, 60, 40]);
-    expect(insertScore(board, { score: 1, coins: 0, at: '' }).place).toBe(-1);
+    expect(r.board.map((e) => e.score)).toEqual([5000, 4000, 3500, 3000, 2000]);
+    expect(insertScore(r.board, { score: 1, stars: 0, at: '' }).place).toBe(-1);
   });
 });
