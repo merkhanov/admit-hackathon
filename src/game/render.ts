@@ -1,4 +1,5 @@
 import { JUMP_S, PUNCH_S, type Entity, type GameNote, type GameState, type HazardType } from './game.ts';
+import type { SceneRenderer } from './sceneRenderer.ts';
 
 const COLORS = {
   accent: '#4d6bff',
@@ -20,7 +21,7 @@ const DEPTH = 6;
 const scaleAt = (z: number) => NEAR / (NEAR + Math.max(-0.12, z) * DEPTH);
 
 /** Draws the runner scene. Keeps only visual state (particles, shake, smooth lane); game rules live in game.ts. */
-export class GameRenderer {
+export class GameRenderer implements SceneRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private w = 0;
@@ -364,7 +365,7 @@ export class GameRenderer {
       ctx.fillRect(q.x, q.y, q.size, q.size);
     }
     this.texts = this.texts.filter((t) => (t.life += dt) < 1.1);
-    ctx.font = `700 ${Math.round(this.laneW * 0.13)}px Unbounded, system-ui, sans-serif`;
+    ctx.font = `700 ${Math.round(this.laneW * 0.13)}px Rubik, system-ui, sans-serif`;
     ctx.textAlign = 'center';
     for (const t of this.texts) {
       ctx.globalAlpha = 1 - t.life / 1.1;

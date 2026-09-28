@@ -5,6 +5,8 @@ import { adviceLines, countHintOnsets, emptyHintCounts } from './app/summary.ts'
 import { Sfx } from './audio/sfx.ts';
 import { newGame, stepGame, type GameNote, type GameState } from './game/game.ts';
 import { GameRenderer } from './game/render.ts';
+import type { SceneRenderer } from './game/sceneRenderer.ts';
+import { ThreeRenderer } from './game/three/renderer3d.ts';
 import { CameraError, downloadProgress, preloadRecognition, startCamera, type PoseSource } from './pose/camera.ts';
 import { startDemoSource } from './pose/demoSource.ts';
 import type { GestureId } from './pose/gestures.ts';
@@ -26,12 +28,25 @@ if (!screensRoot) throw new Error('Missing #screens');
 
 const demo = new URLSearchParams(location.search).has('demo');
 const sfx = new Sfx();
-const renderer = new GameRenderer(canvas('scene'));
+const renderer = createRenderer(canvas('scene'));
 const poseView = new PoseView(canvas('pose'));
 const hud = new Hud();
 const screens = new Screens(screensRoot, () => void start());
 // Start the ~17 MB download right away, so it overlaps with the player reading the intro.
 if (!demo) preloadRecognition().catch(() => undefined);
+
+/** The 3D scene, or the flat 2D one when WebGL is unavailable. */
+function createRenderer(target: HTMLCanvasElement): SceneRenderer {
+  try {
+    return new ThreeRenderer(target);
+  } catch {
+    // A canvas that tried WebGL can't switch to 2D, so the fallback draws on a fresh one.
+    const fresh = document.createElement('canvas');
+    fresh.id = target.id;
+    target.replaceWith(fresh);
+    return new GameRenderer(fresh);
+  }
+}
 
 /** A game with no obstacles: the runner reacts to gestures during calibration, tutorial and countdown. */
 function practiceGame(): GameState {

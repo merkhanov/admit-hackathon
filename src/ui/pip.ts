@@ -45,7 +45,7 @@ export class PoseView {
     if (f.present) {
       ctx.setLineDash([6, 6]);
       ctx.lineWidth = 1.5;
-      ctx.font = `600 ${Math.round(H / 22)}px Manrope, system-ui, sans-serif`;
+      ctx.font = `600 ${Math.round(H / 22)}px Rubik, system-ui, sans-serif`;
       const jumpY = (Math.min(pose[IDX.LEFT_SHOULDER].y, pose[IDX.RIGHT_SHOULDER].y) - JUMP_UP * f.sw) * H;
       this.guide(jumpY, '#7c93ff', 'прыжок');
       if (calib) this.guide((calib.midY + DUCK_DROP * calib.sw) * H, '#c084fc', 'присед');

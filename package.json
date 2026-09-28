@@ -11,12 +11,14 @@
     "typecheck": "tsc"
   },
   "devDependencies": {
+    "@types/three": "0.186.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.2"
   },
   "dependencies": {
-    "@mediapipe/tasks-vision": "1.0.1"
+    "@mediapipe/tasks-vision": "1.0.1",
+    "three": "0.186.1"
   },
   "packageManager": "pnpm@12.6.0",
   "engines": {
