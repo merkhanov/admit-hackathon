@@ -1,4 +1,4 @@
-/** Неоновые палитры эффектов под каждую песню. */
+/** Палитры конфетти под каждую песню. */
 export interface VfxPalette {
   primary: string;
   secondary: string;
@@ -7,11 +7,12 @@ export interface VfxPalette {
 }
 
 export const VFX_PALETTES: Record<string, VfxPalette> = {
-  steps: { primary: '#00d4ff', secondary: '#ff00ff', accent: '#ffffff', bg: '#0a0a2e' },
-  groove: { primary: '#00ff88', secondary: '#ffaa00', accent: '#ffffff', bg: '#0a2e1a' },
-  rush: { primary: '#ff3366', secondary: '#ff6600', accent: '#ffff00', bg: '#2e0a1a' },
-  chill: { primary: '#6688ff', secondary: '#aa66ff', accent: '#88ffcc', bg: '#0a1a2e' },
-  storm: { primary: '#ff0044', secondary: '#ff4400', accent: '#ffff00', bg: '#2e0a0a' },
+  // Soft, kid-safe confetti per song, from the DESIGN.md palette.
+  steps: { primary: '#56f3c1', secondary: '#fe8dc5', accent: '#ffda4b', bg: '#9d99ed' },
+  groove: { primary: '#8cd1fa', secondary: '#ffb36a', accent: '#56f3c1', bg: '#8cd1fa' },
+  rush: { primary: '#fe8b85', secondary: '#ffda4b', accent: '#fe8dc5', bg: '#ea9dd9' },
+  chill: { primary: '#8cd1fa', secondary: '#b48cf0', accent: '#56f3c1', bg: '#9d99ed' },
+  storm: { primary: '#8140d0', secondary: '#fe8b85', accent: '#ffda4b', bg: '#b48cf0' },
 };
 
 /** Палитра по ключу песни, с откатом на 'steps' для неизвестных ключей. */

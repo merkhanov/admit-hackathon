@@ -142,7 +142,7 @@ function lobbyHtml(songTitle: string, showJoin: boolean): string {
   <section class="screen center lobby">
     <div class="over-card lobby-card">
       <button id="lobby-menu" class="menu-x" type="button" aria-label="В главное меню" title="В главное меню">×</button>
-      <p class="eyebrow">Мультиплеер · до 4 игроков</p>
+      <p class="chip">Мультиплеер · до 4 игроков</p>
       <h2>Лобби</h2>
       ${nameBlock}
       ${roomBlock}

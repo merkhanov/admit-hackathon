@@ -4,7 +4,8 @@ import type { Side } from '../pose/features.ts';
 import { IDX, SKELETON } from '../pose/landmarks.ts';
 import type { TrackerOutput } from '../pose/tracker.ts';
 
-const GOOD = '#4ade80', NEAR = '#ffd21f', BAD = '#ff4d5e', IDLE = '#ffffff', GHOST = '#ffd21f';
+// DESIGN.md: mint = on target, sunshine = close, coral = off; the dashed ghost is sunshine.
+const GOOD = '#56f3c1', NEAR = '#ffda4b', BAD = '#fe8b85', IDLE = '#ffffff', GHOST = '#ffda4b';
 const RAD = Math.PI / 180;
 const ARM_LENGTH = 1.6; // shoulder widths
 
@@ -41,7 +42,7 @@ export class PoseView {
       canvas.width = Math.round(W);
       canvas.height = Math.round(H);
     }
-    ctx.fillStyle = '#0b1026';
+    ctx.fillStyle = '#1d1740';
     ctx.fillRect(0, 0, W, H);
     if (video && video.readyState >= 2) {
       ctx.save();

@@ -11,8 +11,9 @@ import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
 import { paletteFor } from './vfx.ts';
 
-const FLOOR_COLS = 11, FLOOR_ROWS = 6, TILE = 1.1;
-const FLOOR_PALETTE = [0xff2fb3, 0x22d3ee, 0xffd21f, 0x8a5cff, 0x3ccf4e];
+const FLOOR_COLS = 11, FLOOR_ROWS = 9, TILE = 1.1;
+// Candy tiles from DESIGN.md: bubblegum, sky, sunshine, lilac, mint.
+const FLOOR_PALETTE = [0xfe8dc5, 0x8cd1fa, 0xffda4b, 0xb48cf0, 0x56f3c1];
 const MAX_CONFETTI = 260;
 
 interface Confetti { pos: Vector3; vel: Vector3; spin: Vector3; life: number; color: Color }
@@ -57,13 +58,13 @@ export class Stage implements StageView {
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFShadowMap;
-    this.scene.background = new Color(0x1a0f5c);
+    this.scene.background = new Color(0xb48cf0);
     const pmrem = new PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.55;
 
     const ramp = toonRamp();
-    this.scene.add(new HemisphereLight(0xffe6ff, 0x3a2a80, 0.9));
+    this.scene.add(new HemisphereLight(0xfff4ff, 0x9d80d0, 1.2));
     const key = new DirectionalLight(0xffffff, 2.2);
     key.position.set(2.5, 6, 5);
     key.castShadow = true;
@@ -95,7 +96,7 @@ export class Stage implements StageView {
     let i = 0;
     for (let r = 0; r < FLOOR_ROWS; r++) {
       for (let c = 0; c < FLOOR_COLS; c++) {
-        this.dummy.position.set((c - (FLOOR_COLS - 1) / 2) * TILE, -0.05, 1.5 - r * TILE);
+        this.dummy.position.set((c - (FLOOR_COLS - 1) / 2) * TILE, -0.05, 4.8 - r * TILE);
         this.dummy.updateMatrix();
         this.floor.setMatrixAt(i, this.dummy.matrix);
         this.floor.setColorAt(i, this.color.set(FLOOR_PALETTE[(r + c) % FLOOR_PALETTE.length]));
@@ -109,7 +110,7 @@ export class Stage implements StageView {
     beamGeo.translate(0, -4.5, 0);
     for (let b = 0; b < 4; b++) {
       const m = new Mesh(beamGeo, new MeshBasicMaterial({
-        map: beamTex, color: FLOOR_PALETTE[b], transparent: true, opacity: 0.35, blending: AdditiveBlending, depthWrite: false, toneMapped: false,
+        map: beamTex, color: 0xffffff, transparent: true, opacity: 0.2, blending: AdditiveBlending, depthWrite: false, toneMapped: false,
       }));
       m.position.set((b - 1.5) * 3.2, 8, -3);
       this.beams.push(m);
@@ -173,7 +174,7 @@ export class Stage implements StageView {
     this.beams.forEach((b, i) => {
       b.rotation.z = Math.sin(t * 0.8 + i * 1.3) * 0.45;
       const m = b.material;
-      if (m instanceof MeshBasicMaterial) m.opacity = 0.18 + pulse * 0.25;
+      if (m instanceof MeshBasicMaterial) m.opacity = 0.1 + pulse * 0.14;
     });
 
     this.shake = Math.max(0, this.shake - dt * 0.4);

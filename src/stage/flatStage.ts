@@ -30,9 +30,9 @@ export class FlatStage implements StageView {
     const { ctx, canvas } = this;
     const w = canvas.width, h = canvas.height;
     const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, '#ff2fb3');
-    g.addColorStop(0.5, '#8a2cff');
-    g.addColorStop(1, '#1a0f5c');
+    g.addColorStop(0, '#9d99ed');
+    g.addColorStop(0.55, '#ea9dd9');
+    g.addColorStop(1, '#ffc1b5');
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
     this.flash = Math.max(0, this.flash - dt * 2);
@@ -45,7 +45,7 @@ export class FlatStage implements StageView {
       ctx.scale(size / 64, size / 64);
       ctx.lineCap = 'round';
       ctx.strokeStyle = '#ffffff';
-      ctx.shadowColor = this.flash > 0 ? '#ffd21f' : '#22d3ee';
+      ctx.shadowColor = this.flash > 0 ? '#ffda4b' : '#8140d0';
       ctx.shadowBlur = 12;
       ctx.lineWidth = 4;
       const hipY = frame.target.squat ? 44 : 40;

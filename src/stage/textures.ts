@@ -23,12 +23,12 @@ export function toonRamp(): DataTexture {
   return t;
 }
 
-/** Magenta-to-indigo backdrop with soft light blobs, like a music video stage. */
+/** Candy-sky backdrop: lilac to pink to peach, with soft light bubbles. Friendly, never club-dark. */
 export const backdrop = () => canvasTexture(512, 512, (ctx) => {
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0, '#ff2fb3');
-  g.addColorStop(0.45, '#8a2cff');
-  g.addColorStop(1, '#1a0f5c');
+  g.addColorStop(0, '#9d99ed');
+  g.addColorStop(0.55, '#ea9dd9');
+  g.addColorStop(1, '#ffc1b5');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 512, 512);
   let seed = 9;
@@ -36,9 +36,9 @@ export const backdrop = () => canvasTexture(512, 512, (ctx) => {
   for (let i = 0; i < 26; i++) {
     const x = r() * 512, y = r() * 380, rad = 20 + r() * 90;
     const blob = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    const hue = [320, 280, 190, 50][i % 4];
-    blob.addColorStop(0, `hsla(${hue}, 100%, 75%, 0.35)`);
-    blob.addColorStop(1, `hsla(${hue}, 100%, 60%, 0)`);
+    const hue = [330, 280, 200, 50][i % 4];
+    blob.addColorStop(0, `hsla(${hue}, 100%, 92%, 0.55)`);
+    blob.addColorStop(1, `hsla(${hue}, 100%, 85%, 0)`);
     ctx.fillStyle = blob;
     ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
   }
@@ -48,7 +48,7 @@ export const backdrop = () => canvasTexture(512, 512, (ctx) => {
 export const floorTile = () => canvasTexture(128, 128, (ctx) => {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle = '#2a2a2a';
+  ctx.fillStyle = '#6a5a9a';
   ctx.fillRect(8, 8, 112, 112);
   const g = ctx.createRadialGradient(64, 64, 10, 64, 64, 80);
   g.addColorStop(0, 'rgba(255,255,255,0.5)');
