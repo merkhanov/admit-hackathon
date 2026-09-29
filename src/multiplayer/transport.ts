@@ -9,9 +9,8 @@ export type TransportEvent =
   | { kind: 'disconnected' };
 
 /**
- * A multiplayer transport: BroadcastChannel (same-device tabs) or WebRTC
- * (cross-device). The orchestrator is transport-agnostic — it only talks to
- * this interface.
+ * A multiplayer transport: PeerJS (cross-device, the default) or WebRTC over our
+ * own signaling server (local development). The orchestrator only talks to this interface.
  */
 export interface MPTransport {
   /** Connect to a room. `isHost` hints whether this client should act as host. */

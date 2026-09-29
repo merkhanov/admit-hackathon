@@ -32,3 +32,6 @@ public/models/
 
 # Harness
 .context/
+
+# Local debugging harnesses and large assets
+lab/

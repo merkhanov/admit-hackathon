@@ -8,16 +8,19 @@
     "build": "node scripts/fetch-models.mjs && tsc && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "e2e:multiplayer": "node scripts/e2e-multiplayer.mjs"
   },
   "devDependencies": {
     "@types/three": "0.186.0",
+    "playwright-core": "^1.63.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0",
     "vitest": "^5.0.2"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.0.1",
+    "peerjs": "^1.5.5",
     "three": "0.186.1"
   },
   "packageManager": "pnpm@12.6.0",

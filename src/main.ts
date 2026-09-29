@@ -16,9 +16,9 @@ import { FlatStage } from './stage/flatStage.ts';
 import { Stage, type StageView } from './stage/stage.ts';
 import { Hud, type Banner } from './ui/hud.ts';
 import { Scoreboard } from './ui/scoreboard.ts';
-import { BroadcastTransport } from './multiplayer/broadcast.ts';
 import { MPManager } from './multiplayer/manager.ts';
 import { loadPlayerName, makePlayerId } from './multiplayer/persistence.ts';
+import { PeerJSTransport } from './multiplayer/peerjs.ts';
 import { WebRTCTransport } from './multiplayer/webrtc.ts';
 import { PoseView } from './ui/pip.ts';
 import { Screens, type RoundResult } from './ui/screens.ts';
@@ -56,19 +56,22 @@ const demo = new URLSearchParams(location.search).has('demo');
 const params = new URLSearchParams(location.search);
 
 /**
- * Multiplayer: one manager per tab. Transport is chosen by URL:
- * `?room=CODE` joins a cross-device room via WebRTC; otherwise same-device
- * tabs sync via BroadcastChannel. Single-player (no room) skips multiplayer.
+ * Multiplayer: one manager per tab. Every room, whether created in the lobby or opened
+ * with `?room=CODE`, goes over PeerJS so phones and desktops meet across devices.
+ * `?signal=local` uses our own signaling server on localhost instead (see signaling-server/).
  */
 const roomParam = params.get('room');
 const mpSelfId = makePlayerId();
 const mpName = loadPlayerName() ?? 'Игрок';
-const mpTransport = roomParam
+const mpTransport = params.get('signal') === 'local'
   ? new WebRTCTransport(mpSelfId)
-  : new BroadcastTransport(mpSelfId);
+  : new PeerJSTransport();
 export const mp = new MPManager(mpSelfId, mpName, mpTransport);
 if (roomParam) mp.connect(roomParam, params.get('host') === '1');
 const sfx = new Sfx();
+// iOS Safari only lets audio start inside a tap. Resume the context on every tap, so a guest
+// whose song is started later by the host (no tap at that moment) still hears the music.
+window.addEventListener('pointerdown', () => sfx.unlock(), { passive: true });
 const stage = createStage(canvas('scene'));
 const poseView = new PoseView(canvas('pose'));
 const hud = new Hud();

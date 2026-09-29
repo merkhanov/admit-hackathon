@@ -86,22 +86,33 @@ export async function renderSong(song: Song): Promise<AudioBuffer> {
   return ctx.startRendering();
 }
 
-/** Plays a rendered song and reports the position the player actually hears. */
+/** The parts of AudioContext the player needs; tests pass a stand-in. */
+export type AudioClock = Pick<AudioContext, 'state' | 'currentTime' | 'outputLatency' | 'destination' | 'createBufferSource'>;
+
+/**
+ * Plays a rendered song and reports the position the player actually hears.
+ * iOS Safari keeps an AudioContext 'suspended' unless it was started inside a tap, which
+ * freezes its clock. Then the song runs on the wall clock, silently, so the dance still moves.
+ */
 export class SongPlayer {
-  private readonly ctx: AudioContext;
+  private readonly ctx: AudioClock;
+  private readonly now: () => number;
   private source: AudioBufferSourceNode | null = null;
   private startedAt = 0;
+  private wallClock = false;
 
-  constructor(ctx: AudioContext) {
+  constructor(ctx: AudioClock, now: () => number = () => performance.now()) {
     this.ctx = ctx;
+    this.now = now;
   }
 
-  /** Starts the song. Without a buffer (still rendering) the clock runs silently, so the dance keeps its timing. */
+  /** Starts the song. Without a buffer (still rendering) or audio the clock runs silently, so the dance keeps its timing. */
   play(buffer: AudioBuffer | null): void {
     this.stop();
+    this.wallClock = this.ctx.state !== 'running';
     // A short lead-in so the first beat isn't clipped while the node starts.
-    this.startedAt = this.ctx.currentTime + 0.1;
-    if (!buffer) return;
+    this.startedAt = (this.wallClock ? this.now() / 1000 : this.ctx.currentTime) + 0.1;
+    if (!buffer || this.wallClock) return;
     const src = this.ctx.createBufferSource();
     src.buffer = buffer;
     src.connect(this.ctx.destination);
@@ -114,8 +125,9 @@ export class SongPlayer {
     this.source = null;
   }
 
-  /** Song time in seconds, from the audio clock, corrected for output latency. Negative before the start. */
+  /** Song time in seconds, corrected for output latency when audio plays. Negative before the start. */
   time(): number {
+    if (this.wallClock) return this.now() / 1000 - this.startedAt;
     return this.ctx.currentTime - this.startedAt - (this.ctx.outputLatency || 0);
   }
 }

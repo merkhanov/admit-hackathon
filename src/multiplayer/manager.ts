@@ -5,7 +5,7 @@ import type { SongId } from '../dance/songs.ts';
 
 /**
  * Multiplayer orchestrator: owns the session state, talks to the transport,
- * and exposes a game-flow API. Transport-agnostic (BroadcastChannel or WebRTC).
+ * and exposes a game-flow API. Transport-agnostic (PeerJS or WebRTC).
  *
  * Join protocol:
  * - Host connects, applies its own `join`, becomes host.
