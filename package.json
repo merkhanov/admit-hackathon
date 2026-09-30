@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc",
-    "e2e:multiplayer": "node scripts/e2e-multiplayer.mjs"
+    "e2e:multiplayer": "node scripts/e2e-multiplayer.mjs",
+    "import:mixamo": "node scripts/import-mixamo.mjs"
   },
   "devDependencies": {
     "@types/three": "0.186.0",

@@ -20,12 +20,13 @@ interface Chain { arm: Bone; fore: Bone; hand: Bone }
 
 /**
  * Finds a Mixamo-standard bone such as "RightForeArm". Mixamo files name it "mixamorig:RightForeArm"
- * (GLTFLoader drops the ':'), Ready Player Me files use the bare name; all three are accepted.
+ * (GLTFLoader drops the ':'), Ready Player Me files use the bare name; both are accepted.
  */
 function tryBone(root: Object3D, name: string): Bone | null {
   let found: Bone | null = null;
   root.traverse((o) => {
-    if (!found && o instanceof Bone && (o.name === name || o.name === `mixamorig${name}` || o.name === `mixamorig:${name}`)) found = o;
+    // Some exports prefix the rig name too, as in "vis_char_052:mixamorig:LeftArm".
+    if (!found && o instanceof Bone && (o.name === name || o.name.replace(/:/g, '').endsWith(`mixamorig${name}`))) found = o;
   });
   return found;
 }

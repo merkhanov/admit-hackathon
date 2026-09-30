@@ -40,8 +40,12 @@ const CREW_SLOTS: readonly { x: number; z: number }[] = [{ x: -2.3, z: -1 }, { x
 const CREW_SCALE = 0.62;
 /** Name tags float just above a raised hand of a crew avatar. */
 const TAG_HEIGHT = 2.95 * CREW_SCALE;
-/** Avatars are the coach's own model, so every dancer on stage has one style. Each slot has its own look. */
 const DANCER_MODEL = 'models/michelle.glb';
+/**
+ * Other players' characters, one per slot: Mixamo characters in the coach's style, added by
+ * scripts/import-mixamo.mjs. A missing file falls back to the coach's model in that slot's look.
+ */
+const CREW_MODELS: readonly string[] = ['models/crew-1.glb', 'models/crew-2.glb', 'models/crew-3.glb'];
 const CREW_OUTFITS: readonly Outfit[] = [
   { top: 0x56f3c1, pants: 0x8140d0, hair: 0x271f46 },
   { top: 0xffda4b, pants: 0x8cd1fa, hair: 0xfe8b85 },
@@ -215,19 +219,20 @@ export class Stage implements StageView {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Dresses the avatars ahead of the song. The model is the coach's, so nothing extra downloads. Safe to call often. */
+  /** Loads the avatars ahead of the song, so they're ready when it starts. Safe to call often. */
   preloadCrew(): void {
     if (this.crewLoading) return;
     this.crewLoading = true;
+    const base = import.meta.env.BASE_URL;
+    const size = { height: 2.25 * CREW_SCALE, castShadow: false };
     CREW_LOOKS.forEach((look, slot) => {
-      RealCoach.load(`${import.meta.env.BASE_URL}${DANCER_MODEL}`, { height: 2.25 * CREW_SCALE, castShadow: false, look }).then(
-        (real) => {
+      RealCoach.load(`${base}${CREW_MODELS[slot]}`, size)
+        .catch(() => RealCoach.load(`${base}${DANCER_MODEL}`, { ...size, look }))
+        .then((real) => {
           this.crewModels[slot] = real;
           // Swap the cartoon placeholder for the real model if that slot is already on stage.
           for (const a of this.crew.values()) if (a.slot === slot) this.placeAvatar(a, real);
-        },
-        (err: unknown) => console.warn('Avatar model unavailable, keeping the cartoon figure', err),
-      );
+        }, (err: unknown) => console.warn('Avatar model unavailable, keeping the cartoon figure', err));
     });
   }
 
