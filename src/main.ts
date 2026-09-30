@@ -341,6 +341,16 @@ function frame(now: number, dt: number): void {
   liveMatch = target && body ? evaluate(target, body) : null;
   if (flow.phase.kind !== 'warmup' || (liveMatch?.score ?? 0) >= WARMUP_PASS) warmupMissSince = clock;
 
+  // The host announces its song to the room, including one picked before the room existed.
+  // A song file can't be shared, so the room gets the default song instead.
+  if (flow.phase.kind === 'lobby' && inRoom() && mp.amHost()) {
+    const key = songInfo(tracks.current.key) ? tracks.current.key : DEFAULT_SONG.song.id;
+    if (mp.getState().songId !== key) {
+      setSong(key);
+      mp.selectSong(key);
+    }
+  }
+
   const t = songTime();
   const step = stepFlow(flow, {
     events,
