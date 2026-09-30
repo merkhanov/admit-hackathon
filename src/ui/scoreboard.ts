@@ -13,6 +13,9 @@ function escapeHtml(s: string): string {
   });
 }
 
+/** How long a miss shows on the player's row. */
+const MISS_SHOWN_MS = 1100;
+
 /**
  * Компактное live-табло для мультиплеера (правый верхний угол, под HUD).
  *
@@ -25,6 +28,8 @@ function escapeHtml(s: string): string {
 export class Scoreboard {
   private readonly el: HTMLElement;
   private lastHtml = '';
+  /** Until when (performance.now ms) a player's row shows their last miss. */
+  private readonly missedUntil = new Map<string, number>();
 
   constructor() {
     const existing = document.getElementById('scoreboard');
@@ -38,11 +43,18 @@ export class Scoreboard {
     this.el.hidden = true;
   }
 
+  /** A player's move was just rated: a miss flashes their row with «ошибся». */
+  flash(playerId: string, rating: string): void {
+    if (rating === 'miss') this.missedUntil.set(playerId, performance.now() + MISS_SHOWN_MS);
+    else this.missedUntil.delete(playerId);
+  }
+
   show(players: MPPlayer[], selfId: string): void {
     if (players.length <= 1) {
       this.hide();
       return;
     }
+    const now = performance.now();
     const top = [...players].sort((a, b) => b.score - a.score).slice(0, 4);
     const leaderId = top[0]?.id;
     const html = top
@@ -50,7 +62,9 @@ export class Scoreboard {
         const cls = ['sb-row'];
         if (p.id === selfId) cls.push('self');
         if (p.id === leaderId) cls.push('leader');
-        return `<div class="${cls.join(' ')}">${escapeHtml(p.name)} ${p.score} ×${p.combo}</div>`;
+        const missed = (this.missedUntil.get(p.id) ?? 0) > now;
+        if (missed) cls.push('missed');
+        return `<div class="${cls.join(' ')}">${escapeHtml(p.name)} ${missed ? '<span class="sb-note">ошибся!</span>' : `${p.score} ×${p.combo}`}</div>`;
       })
       .join('');
     if (html !== this.lastHtml) {

@@ -1,5 +1,5 @@
 import { buildPodium, emptyState, stepSession } from './session.ts';
-import type { CompactPose, MPEvent, MPMessage, MultiplayerState, PodiumEntry } from './types.ts';
+import type { CompactPose, MPEvent, MPMessage, MultiplayerState, PodiumEntry, VerdictRating } from './types.ts';
 import type { MPTransport } from './transport.ts';
 import type { SongId } from '../dance/songs.ts';
 
@@ -23,6 +23,7 @@ export class MPManager {
   private changeCbs: (() => void)[] = [];
   private eventCbs: ((ev: MPEvent) => void)[] = [];
   private poseCbs: ((playerId: string, pose: CompactPose) => void)[] = [];
+  private verdictCbs: ((playerId: string, rating: VerdictRating) => void)[] = [];
 
   constructor(selfId: string, name: string, transport: MPTransport) {
     this.selfId = selfId;
@@ -61,6 +62,17 @@ export class MPManager {
   }
 
   /** Changes our nickname; in a room the new name reaches every peer's roster. */
+  /** Other players' move ratings as they are judged; our own are never echoed back. */
+  onVerdict(cb: (playerId: string, rating: VerdictRating) => void): void {
+    this.verdictCbs.push(cb);
+  }
+
+  /** Tells the room how our last move was rated, so our avatar reacts on their screens. */
+  sendVerdict(rating: VerdictRating): void {
+    if (!this.state.roomId) return;
+    this.transport.send({ type: 'verdict', playerId: this.selfId, rating });
+  }
+
   setName(name: string): void {
     this.name = name;
     if (this.state.roomId) this.dispatch({ type: 'rename', playerId: this.selfId, name });
@@ -175,6 +187,10 @@ export class MPManager {
   private receive(msg: MPMessage): void {
     if (msg.type === 'pose') {
       if (msg.playerId !== this.selfId) for (const cb of this.poseCbs) cb(msg.playerId, msg.pose);
+      return;
+    }
+    if (msg.type === 'verdict') {
+      if (msg.playerId !== this.selfId) for (const cb of this.verdictCbs) cb(msg.playerId, msg.rating);
       return;
     }
     if (msg.type === 'sync') {

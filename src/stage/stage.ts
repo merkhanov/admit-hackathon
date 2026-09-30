@@ -1,7 +1,7 @@
 import {
   ACESFilmicToneMapping, AdditiveBlending, BoxGeometry, Color, ConeGeometry, DirectionalLight, DoubleSide, HemisphereLight,
   InstancedMesh, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, PCFShadowMap, PerspectiveCamera, PlaneGeometry,
-  PMREMGenerator, PointLight, Scene, Vector3, WebGLRenderer, type Texture,
+  PMREMGenerator, PointLight, RingGeometry, Scene, Vector3, WebGLRenderer, type Texture,
 } from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Rating } from '../dance/dance.ts';
@@ -16,6 +16,27 @@ const FLOOR_COLS = 11, FLOOR_ROWS = 9, TILE = 1.1;
 const MAX_CONFETTI = 260;
 
 interface Confetti { pos: Vector3; vel: Vector3; spin: Vector3; life: number; color: Color }
+
+/** Another player's avatar on stage, with what shows their last rated move. */
+interface CrewAvatar {
+  coach: CoachView;
+  tag: HTMLDivElement;
+  /** "Мимо!" or "Идеально!" popping up over the head. */
+  pop: HTMLDivElement;
+  /** A glowing ring on the floor under the avatar: red after a miss, green after a perfect. */
+  ring: Mesh;
+  slot: number;
+  pose: MoveTarget | null;
+  /** 1 right after a miss, fading to 0: the avatar flinches and the ring glows red. */
+  flinch: number;
+  /** 1 right after a perfect, fading to 0: the ring glows green. */
+  shine: number;
+}
+
+/** How long a rating stays on an avatar, in seconds. */
+const CREW_REACT_S = 1.1;
+const MISS_RED = 0xff3b5c;
+const PERFECT_GREEN = 0x3ef0a8;
 
 export interface StageFrame {
   /** Move the coach shows, or null for the idle groove. */
@@ -62,6 +83,8 @@ export interface StageView {
   preloadCrew(): void;
   resize(): void;
   react(rating: Rating): void;
+  /** Another player's move was just rated: their avatar shows it (a miss makes it flinch). */
+  crewReact(id: string, rating: Rating): void;
   draw(frame: StageFrame, dt: number): void;
   /** Colours and the coach's costume for a song. */
   setTheme(theme: StageTheme): void;
@@ -83,7 +106,7 @@ export class Stage implements StageView {
   private lastBeat = -1;
   private shake = 0;
   private readonly ramp: Texture;
-  private readonly crew = new Map<string, { coach: CoachView; tag: HTMLDivElement; slot: number; pose: MoveTarget | null }>();
+  private readonly crew = new Map<string, CrewAvatar>();
   /** Realistic avatar per slot once loaded; until then the slot shows a cartoon figure. */
   private readonly crewModels: (RealCoach | null)[] = CREW_LOOKS.map(() => null);
   private crewLoading = false;
@@ -251,7 +274,9 @@ export class Stage implements StageView {
     for (const [id, a] of this.crew) {
       if (keep.has(id)) continue;
       this.scene.remove(a.coach.group);
+      this.scene.remove(a.ring);
       a.tag.remove();
+      a.pop.remove();
       this.crew.delete(id);
     }
     for (const m of members.slice(0, CREW_SLOTS.length)) {
@@ -271,8 +296,17 @@ export class Stage implements StageView {
         this.scene.add(coach.group);
         const tag = document.createElement('div');
         tag.className = 'crew-tag';
-        this.tagLayer.append(tag);
-        a = { coach, tag, slot, pose: null };
+        const pop = document.createElement('div');
+        pop.className = 'crew-pop';
+        this.tagLayer.append(tag, pop);
+        const ring = new Mesh(
+          new RingGeometry(0.45, 0.75, 40),
+          new MeshBasicMaterial({ color: MISS_RED, transparent: true, opacity: 0, depthWrite: false, blending: AdditiveBlending, toneMapped: false }),
+        );
+        ring.rotation.x = -Math.PI / 2;
+        ring.position.set(CREW_SLOTS[slot].x, 0.03, CREW_SLOTS[slot].z);
+        this.scene.add(ring);
+        a = { coach, tag, pop, ring, slot, pose: null, flinch: 0, shine: 0 };
         this.crew.set(m.id, a);
       }
       a.pose = m.pose;
@@ -289,11 +323,54 @@ export class Stage implements StageView {
     else if (rating === 'miss') this.shake = 0.08;
   }
 
+  crewReact(id: string, rating: Rating): void {
+    const a = this.crew.get(id);
+    if (!a) return;
+    if (rating === 'miss') {
+      a.flinch = 1;
+      a.shine = 0;
+      this.popUp(a, 'Мимо!', 'miss');
+    } else if (rating === 'perfect') {
+      a.shine = 1;
+      a.flinch = 0;
+      this.popUp(a, 'Идеально!', 'perfect');
+      const { x, z } = CREW_SLOTS[a.slot];
+      this.burst(16, this.theme.floor, new Vector3(x, 1.7, z + 0.3), 0.5);
+    }
+  }
+
+  /** Restarts the pop-up animation over an avatar's head. */
+  private popUp(a: CrewAvatar, text: string, kind: 'miss' | 'perfect'): void {
+    a.pop.textContent = text;
+    a.pop.className = 'crew-pop';
+    void a.pop.offsetWidth;
+    a.pop.className = `crew-pop show ${kind}`;
+  }
+
+  /** Flinch on a miss (a shake that dies away), and the floor ring's glow. */
+  private stepCrewReactions(dt: number): void {
+    const t = performance.now() / 1000;
+    for (const a of this.crew.values()) {
+      a.flinch = Math.max(0, a.flinch - dt / CREW_REACT_S);
+      a.shine = Math.max(0, a.shine - dt / CREW_REACT_S);
+      const { x, z } = CREW_SLOTS[a.slot];
+      const f = a.flinch * a.flinch;
+      a.coach.group.position.set(x + Math.sin(t * 55) * 0.07 * f, 0, z - 0.12 * f);
+      const m = a.ring.material;
+      if (m instanceof MeshBasicMaterial) {
+        m.color.setHex(a.flinch >= a.shine ? MISS_RED : PERFECT_GREEN);
+        m.opacity = Math.max(a.flinch, a.shine) * 0.9;
+      }
+      a.ring.scale.setScalar(1 + (1 - Math.max(a.flinch, a.shine)) * 0.6);
+    }
+  }
+
   draw(frame: StageFrame, dt: number): void {
     const beatIndex = Math.floor(frame.beat);
     const phase = frame.beat - beatIndex;
     this.coach.update(frame.target, frame.playing ? phase : (performance.now() / 600) % 1, frame.playing ? beatIndex : Math.floor(performance.now() / 600), dt, frame.clip ?? null);
     for (const a of this.crew.values()) a.coach.update(a.pose, phase, beatIndex, dt);
+    this.stepCrewReactions(dt);
 
     if (frame.playing && beatIndex !== this.lastBeat) {
       this.lastBeat = beatIndex;
@@ -326,15 +403,18 @@ export class Stage implements StageView {
       const head = this.tagPos.setFromMatrixPosition(a.coach.group.matrixWorld);
       head.y += TAG_HEIGHT;
       head.project(this.camera);
-      a.tag.style.transform = `translate(${((head.x + 1) / 2) * w}px, ${((1 - head.y) / 2) * h}px) translate(-50%, -100%)`;
+      const at = `translate(${((head.x + 1) / 2) * w}px, ${((1 - head.y) / 2) * h}px)`;
+      a.tag.style.transform = `${at} translate(-50%, -100%)`;
+      a.pop.style.transform = `${at} translate(-50%, -190%)`;
     }
   }
 
-  private burst(count: number, colors: readonly number[]): void {
+  /** Confetti from `from` (above the coach by default); `spread` scales how far it flies. */
+  private burst(count: number, colors: readonly number[], from = new Vector3(0, 2.4, 0.4), spread = 1): void {
     for (let i = 0; i < count && this.confetti.length < MAX_CONFETTI; i++) {
       this.confetti.push({
-        pos: new Vector3((Math.random() - 0.5) * 1.2, 2.4 + Math.random() * 0.6, 0.4),
-        vel: new Vector3((Math.random() - 0.5) * 6, 2 + Math.random() * 4, (Math.random() - 0.2) * 3),
+        pos: new Vector3(from.x + (Math.random() - 0.5) * 1.2 * spread, from.y + Math.random() * 0.6 * spread, from.z),
+        vel: new Vector3((Math.random() - 0.5) * 6 * spread, (2 + Math.random() * 4) * spread, (Math.random() - 0.2) * 3 * spread),
         spin: new Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8),
         life: 0,
         color: new Color(colors[Math.floor(Math.random() * colors.length)]),

@@ -75,3 +75,25 @@ describe('pose streaming', () => {
     expect(JSON.stringify(host.getState().players)).toBe(rosterBefore);
   });
 });
+
+describe('verdict streaming', () => {
+  it("shows a guest's miss to the host, never echoes it back, and leaves the roster alone", () => {
+    const net = hub();
+    const host = new MPManager('h', 'Хост', net());
+    const guest = new MPManager('g', 'Гость', net());
+    host.connect('ROOM', true);
+    guest.connect('ROOM', false);
+    const atHost: [string, string][] = [];
+    const atGuest: [string, string][] = [];
+    host.onVerdict((id, r) => atHost.push([id, r]));
+    guest.onVerdict((id, r) => atGuest.push([id, r]));
+    const rosterBefore = JSON.stringify(host.getState().players);
+
+    guest.sendVerdict('miss');
+    host.sendVerdict('perfect');
+
+    expect(atHost).toEqual([['g', 'miss']]);
+    expect(atGuest).toEqual([['h', 'perfect']]);
+    expect(JSON.stringify(host.getState().players)).toBe(rosterBefore);
+  });
+});

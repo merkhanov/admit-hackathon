@@ -147,6 +147,11 @@ let lastPoseAt = 0;
 /** Latest pose of every other player, with the time it arrived. */
 const remotePoses = new Map<string, { pose: CompactPose; at: number }>();
 mp.onPose((playerId, pose) => remotePoses.set(playerId, { pose, at: performance.now() }));
+// A friend's move was rated: their avatar flinches on a miss (desktops), and their scoreboard row flashes.
+mp.onVerdict((playerId, rating) => {
+  stage.crewReact(playerId, rating);
+  scoreboard.flash(playerId, rating);
+});
 /** A pose older than this is stale: the avatar grooves in place instead of freezing. */
 const POSE_STALE_MS = 1500;
 /** Screens narrower than this (phones) don't draw the other players' avatars. */
@@ -408,6 +413,11 @@ function frame(now: number, dt: number): void {
       hud.showVerdict(v.rating);
       stage.react(v.rating);
       sfx.play(v.rating);
+      // Friends see our miss on our avatar and on their scoreboard; so do we, on ours.
+      if (inRoom()) {
+        mp.sendVerdict(v.rating);
+        scoreboard.flash(mp.self, v.rating);
+      }
     }
     // Multiplayer: broadcast live score about once a second.
     if (mp.getState().roomId && now - lastLiveScoreAt >= MPManager.LIVE_SCORE_MS) {

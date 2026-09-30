@@ -29,6 +29,9 @@ export class FlatStage implements StageView {
 
   preloadCrew(): void {}
 
+  /** No avatars here: the scoreboard shows other players' misses. */
+  crewReact(): void {}
+
   setTheme(theme: StageTheme): void {
     this.theme = theme;
   }

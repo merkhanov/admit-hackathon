@@ -6,6 +6,9 @@ import type { SongId } from '../dance/songs.ts';
  */
 export type CompactPose = [number, number, number, number, number, number];
 
+/** A move's rating, as in dance/dance.ts. */
+export type VerdictRating = 'perfect' | 'good' | 'ok' | 'miss';
+
 /** A player's live/final performance snapshot shared across the room. */
 export interface MPPlayer {
   id: string;
@@ -51,6 +54,8 @@ export type MPMessage =
   | { type: 'liveScore'; playerId: string; score: number; combo: number }
   /** About 15 times a second while the camera is on, so desktops can draw every player's avatar. */
   | { type: 'pose'; playerId: string; pose: CompactPose }
+  /** Each move's rating as it is judged, so friends see a miss (or a perfect) on that player's avatar. */
+  | { type: 'verdict'; playerId: string; rating: VerdictRating }
   | { type: 'result'; playerId: string; score: number; stars: number; accuracy: number }
   | { type: 'podium'; entries: PodiumEntry[] }
   | { type: 'reset' };
