@@ -2,20 +2,22 @@ import './style.css';
 import { cameraFailed, cameraReady, initFlow, startRequested, stepFlow, WARMUP, WARMUP_PASS, type Flow, type FlowCommand } from './app/flow.ts';
 import { insertScore, loadLeaderboard, saveLeaderboard, type ScoreEntry } from './app/leaderboard.ts';
 import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from './app/summary.ts';
-import { renderSong, SongPlayer } from './audio/music.ts';
+import { Tracks, type Track } from './app/tracks.ts';
+import { SongPlayer } from './audio/music.ts';
 import { Sfx } from './audio/sfx.ts';
 import { newDance, stars, stepDance, type DanceState, type Verdict } from './dance/dance.ts';
 import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
 import { MOVES, type MoveTarget } from './dance/moves.ts';
-import { beatLength, SONG, songDuration, stepAt } from './dance/song.ts';
+import { beatLength, songDuration, stepAt } from './dance/song.ts';
 import { CameraError, downloadProgress, preloadRecognition, startCamera, type PoseSource } from './pose/camera.ts';
 import { startDemoSource } from './pose/demoSource.ts';
 import { calibration, initTracker, recalibrate, stepTracker, type TrackerEvent, type TrackerOutput } from './pose/tracker.ts';
 import { FlatStage } from './stage/flatStage.ts';
 import { Stage, type StageView } from './stage/stage.ts';
+import { themeFor } from './stage/themes.ts';
 import { Hud, type Banner } from './ui/hud.ts';
 import { PoseView } from './ui/pip.ts';
-import { Screens, type RoundResult } from './ui/screens.ts';
+import { Screens, type RoundResult, type SongCard } from './ui/screens.ts';
 
 /** How long a move's verdict and its correction stay on screen. */
 const VERDICT_S = 1.8;
@@ -51,13 +53,28 @@ const sfx = new Sfx();
 const stage = createStage(canvas('scene'));
 const poseView = new PoseView(canvas('pose'));
 const hud = new Hud();
-const screens = new Screens(screensRoot, () => void start());
+const tracks = new Tracks();
+let shownTheme = '';
+/** Switches the song, and the stage and costume with it. */
+function selectSong(change: () => void): void {
+  change();
+  const theme = tracks.current.theme;
+  if (theme !== shownTheme) {
+    shownTheme = theme;
+    stage.setTheme(themeFor(theme));
+  }
+}
+const screens = new Screens(screensRoot, {
+  start: () => void start(),
+  pick: (key) => { if (flow.phase.kind === 'intro' || flow.phase.kind === 'error') selectSong(() => tracks.select(key)); },
+  file: (file) => void tracks.loadFile(file).then(() => selectSong(() => undefined)),
+});
 
 // Start the ~17 MB model download and the music render right away, while the player reads the intro.
 if (!demo) preloadRecognition().catch(() => undefined);
-let songBuffer: AudioBuffer | null = null;
-// Without the buffer the song clock still runs, silently; the error must at least be visible.
-renderSong(SONG).then((b) => { songBuffer = b; }, (err: unknown) => console.error('Song render failed', err));
+selectSong(() => tracks.select(tracks.current.key));
+/** The song being danced: fixed from the countdown to the results, whatever the picker shows. */
+let playing: Track = tracks.current;
 
 let flow: Flow = initFlow();
 let tracker = initTracker();
@@ -80,8 +97,8 @@ function currentTarget(): MoveTarget | null {
   const p = flow.phase;
   if (p.kind === 'warmup') return MOVES[WARMUP[p.step].move];
   if (p.kind !== 'dancing') return null;
-  const i = stepAt(SONG, songTime());
-  return i >= 0 ? MOVES[SONG.steps[i].move] : null;
+  const i = stepAt(playing.song, songTime());
+  return i >= 0 ? MOVES[playing.song.steps[i].move] : null;
 }
 
 async function start(): Promise<void> {
@@ -108,11 +125,17 @@ function runCommands(commands: readonly FlowCommand[]): void {
       case 'stepSkipped': sfx.play('hint'); break;
       case 'tick': sfx.play('tick'); break;
       case 'startSong':
+        playing = tracks.current;
         dance = newDance();
         mistakes = {};
         verdict = null;
-        player?.play(songBuffer);
+        player?.play(tracks.buffer(), playing.play);
         sfx.play('go');
+        break;
+      case 'nextSong':
+      case 'prevSong':
+        selectSong(() => tracks.step(c === 'nextSong' ? 1 : -1));
+        sfx.play('tick');
         break;
       case 'finish':
         finishRound();
@@ -128,18 +151,20 @@ function runCommands(commands: readonly FlowCommand[]): void {
 function finishRound(): void {
   player?.stop();
   const d = dance ?? newDance();
-  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, SONG), at: new Date().toISOString() };
+  const song = playing.song;
+  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, song), at: new Date().toISOString() };
   let board: ScoreEntry[] = [entry];
   let place = 0;
   try {
-    const r = insertScore(loadLeaderboard(), entry);
+    const r = insertScore(loadLeaderboard(playing.key), entry);
     board = r.board;
     place = r.place;
-    saveLeaderboard(board);
+    saveLeaderboard(board, playing.key);
   } catch {
     // Storage can be unavailable (private mode). The result still shows.
   }
   result = {
+    songTitle: song.title,
     points: d.points, stars: entry.stars, counts: d.counts, maxCombo: d.maxCombo,
     accuracy: partAccuracy(d), advice: adviceLines(mistakes), place, board, entry,
   };
@@ -191,17 +216,20 @@ function frame(now: number, dt: number): void {
   if (flow.phase.kind !== 'warmup' || (liveMatch?.score ?? 0) >= WARMUP_PASS) warmupMissSince = clock;
 
   const t = songTime();
+  const song = playing.song;
   const step = stepFlow(flow, {
     events,
     dt,
     poseScore: liveMatch?.score ?? null,
-    songOver: flow.phase.kind === 'dancing' && t >= songDuration(SONG),
+    songOver: flow.phase.kind === 'dancing' && t >= songDuration(song),
+    tilt: lastOut?.features.present ? lastOut.features.tilt : null,
+    songReady: tracks.buffer() !== null,
   });
   flow = step.flow;
   runCommands(step.commands);
 
   if (flow.phase.kind === 'dancing' && dance) {
-    const r = stepDance(dance, SONG, songTime(), body);
+    const r = stepDance(dance, playing.song, songTime(), body);
     dance = r.state;
     for (const v of r.verdicts) {
       verdict = { v, until: clock + VERDICT_S };
@@ -214,15 +242,15 @@ function frame(now: number, dt: number): void {
 
   const kind = flow.phase.kind;
   const dancing = kind === 'dancing';
-  const coachIndex = dancing ? stepAt(SONG, songTime() + COACH_LEAD_S) : -1;
-  const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[SONG.steps[coachIndex].move] : null;
-  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(SONG) : 0, playing: dancing }, dt);
+  const coachIndex = dancing ? stepAt(playing.song, songTime() + COACH_LEAD_S) : -1;
+  const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[playing.song.steps[coachIndex].move] : null;
+  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(playing.song) : 0, playing: dancing }, dt);
 
   const cameraOn = source !== null && kind !== 'intro' && kind !== 'loading' && kind !== 'error';
   hud.showPip(cameraOn);
   if (cameraOn) poseView.draw(source?.video ?? null, lastOut, kind === 'warmup' || dancing ? target : null, liveMatch);
-  hud.showDance(dancing ? dance : null, SONG);
-  hud.showPictos(dancing ? SONG : null, songTime());
+  hud.showDance(dancing ? dance : null, playing.song);
+  hud.showPictos(dancing ? playing.song : null, songTime());
   if (!dancing) hud.hideVerdict();
   hud.showBanner(bannerFor());
   const calib = lastOut?.hints.find((h) => h.kind === 'calib');
@@ -231,9 +259,18 @@ function frame(now: number, dt: number): void {
     calibProgress: calib && calib.kind === 'calib' ? calib.progress : 0,
     loadProgress: downloadProgress(),
     result,
-    songTitle: SONG.title,
     demo,
+    songs: tracks.list.map(card),
+    selected: card(tracks.current),
+    prev: card(tracks.neighbour(-1)),
+    next: card(tracks.neighbour(1)),
+    fileStatus: tracks.status,
+    songReady: tracks.buffer() !== null,
   });
+}
+
+function card(t: Track): SongCard {
+  return { key: t.key, song: t.song, credit: t.credit, dances: t.dances, coach: t.coach, warning: t.warning };
 }
 
 let prev = performance.now();

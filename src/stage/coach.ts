@@ -1,6 +1,8 @@
-import { BackSide, BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshToonMaterial, SphereGeometry, type BufferGeometry, type Texture } from 'three';
-import type { MoveTarget } from '../dance/moves.ts';
+import { BackSide, BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshToonMaterial, SphereGeometry, Vector3, type BufferGeometry, type Texture } from 'three';
+import { drawBend, type MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
+import { buildHat } from './hats.ts';
+import type { Hat } from './themes.ts';
 
 const OUTLINE = new MeshBasicMaterial({ color: 0xffffff, side: BackSide });
 const RAD = Math.PI / 180;
@@ -19,6 +21,7 @@ export interface CoachPose {
 export interface CoachView {
   readonly group: Group;
   update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void;
+  setHat(hat: Hat): void;
 }
 
 /**
@@ -34,7 +37,7 @@ export class CoachMotion {
     for (const s of ['L', 'R'] as const) {
       // Idle groove when no move is on screen.
       const dir = target ? target.arms[s].dir : 20 + Math.sin(beatIndex * 1.7 + (s === 'L' ? 0 : 2)) * 12;
-      const bend = target ? 180 - target.arms[s].elbow : 35;
+      const bend = target ? drawBend(target.arms[s]) : 35;
       // Ease the angle the short way round, so an arm never swings through the body.
       let delta = dir - p.dir[s];
       if (delta > 180) delta -= 360;
@@ -59,6 +62,8 @@ export class Coach implements CoachView {
   private readonly arms: Record<Side, Limb>;
   private readonly legs: Record<Side, { hip: Group; knee: Group }>;
   private readonly motion = new CoachMotion();
+  private readonly bun: Mesh;
+  private hat: Group | null = null;
 
   constructor(ramp: Texture) {
     const mat = (color: number) => new MeshToonMaterial({ color, gradientMap: ramp });
@@ -102,6 +107,7 @@ export class Coach implements CoachView {
     const bun = part(new SphereGeometry(0.13, 12, 10), hair);
     bun.position.set(0, 1.48, -0.05);
     this.torso.add(chest, neck, head, hairCap, bun);
+    this.bun = bun;
 
     const arm = (x: number): Limb => {
       const shoulder = new Group(), elbow = new Group();
@@ -123,6 +129,16 @@ export class Coach implements CoachView {
     this.hips.add(this.torso);
     this.hips.position.y = 1.02;
     this.group.add(this.hips);
+  }
+
+  setHat(hat: Hat): void {
+    if (this.hat) this.torso.remove(this.hat);
+    this.hat = buildHat(hat);
+    this.bun.visible = this.hat === null;
+    if (!this.hat) return;
+    this.hat.scale.multiplyScalar(0.29);
+    this.hat.position.multiplyScalar(0.29).add(new Vector3(0, 1.4, 0));
+    this.torso.add(this.hat);
   }
 
   /**

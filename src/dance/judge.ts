@@ -83,6 +83,7 @@ function armPart(s: Side, target: number, arm: ArmAngles): PartScore {
   // Speak in terms of the arc a person feels: across the body, out to the side, higher or lower.
   let action: string;
   if (Math.abs(target) <= DOWN_DEG) action = 'опусти вдоль тела';
+  else if (target < -120 && arm.dir > 90) action = 'сведи ближе к голове';
   else if (target < -15 && arm.dir > 0) action = 'уведи через тело к другому боку';
   else if (target > 15 && arm.dir < -15) action = 'отведи в сторону от тела';
   else action = Math.abs(target) > Math.abs(arm.dir) ? 'подними выше' : 'опусти ниже';

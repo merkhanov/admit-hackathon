@@ -83,7 +83,7 @@ h3 { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacin
 /* Intro */
 .intro { align-items: center; justify-content: center; background: rgba(20, 70, 170, 0.25); }
 .intro-card {
-  width: min(900px, 100%);
+  width: min(960px, 100%);
   max-height: 100%;
   overflow: auto;
   padding: clamp(20px, 4vw, 40px);
@@ -121,6 +121,57 @@ h3 { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacin
 .gesture-card em { font-style: normal; font: 900 11px/1.4 var(--display); color: var(--blue-deep); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
 .gesture-icon { width: 54px; height: 54px; color: var(--ink); --accent: var(--orange); }
 .gesture-icon svg, .tutorial-icon svg { width: 100%; height: 100%; }
+
+/* Song picker */
+.intro-card h3 { margin: 0 0 10px; }
+.song-grid { list-style: none; padding: 0; margin: 0 0 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.song-card {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 12px;
+  text-align: left;
+  font: inherit;
+  color: var(--ink);
+  background: var(--white);
+  border: 4px solid var(--ink);
+  border-radius: 18px;
+  box-shadow: 0 5px 0 var(--ink);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.song-card:hover { transform: translateY(-2px); }
+.song-card:focus-visible { outline: 4px solid var(--yellow); outline-offset: 3px; }
+.song-card.selected { background: var(--yellow); transform: translateY(-2px); }
+.song-icon { width: 44px; height: 44px; color: var(--ink); }
+.song-icon svg { width: 100%; height: 100%; }
+.song-text { display: grid; gap: 1px; font-size: 13px; line-height: 1.25; }
+.song-text strong { font: 900 18px/1.15 var(--display); }
+.song-text em { font-style: normal; font-weight: 700; color: var(--blue-deep); }
+.song-text small { font-size: 12px; color: #4a4a68; }
+.song-about { margin: 0 0 18px; font-size: 15px; }
+.file-pick {
+  display: grid;
+  gap: 2px;
+  margin: 18px 0 0;
+  padding: 12px 16px;
+  border: 3px dashed rgba(255, 255, 255, 0.8);
+  border-radius: 18px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.file-pick:hover, .file-pick:focus-within { background: rgba(255, 255, 255, 0.12); }
+.file-pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.file-pick strong { font: 900 18px var(--display); }
+.file-pick span { font-size: 13px; color: var(--muted); }
+.file-error { border-color: var(--yellow); }
+.file-error span { color: var(--white); font-weight: 700; }
+.song-warning { margin: -10px 0 18px; font-size: 14px; font-weight: 700; color: var(--yellow); }
+.song-switch { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 6px; font-size: 14px; color: var(--muted); }
+.restart p { margin: 0; }
 
 .cta {
   font: 900 clamp(17px, 2vw, 21px)/1 var(--display);
@@ -393,7 +444,8 @@ h3 { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacin
   background: var(--blue-deep);
   border-top: 3px solid rgba(255, 255, 255, 0.35);
 }
-.restart.ready { color: var(--white); animation: pulse 1.2s ease-in-out infinite; }
+.restart.ready { color: var(--white); }
+.restart.ready #restart-text { animation: pulse 1.2s ease-in-out infinite; }
 
 /* Loading and error */
 .screen.center:not(.over):not(.countdown) { background: rgba(20, 70, 170, 0.35); }
@@ -434,6 +486,8 @@ h3 { font-size: 15px; font-weight: 900; text-transform: uppercase; letter-spacin
 /* Phones: smaller panels, camera window and HUD; the tutorial panel moves to the bottom. */
 @media (max-width: 720px) {
   .gesture-grid { grid-template-columns: repeat(2, 1fr); }
+  .song-grid { grid-template-columns: 1fr; }
+  .song-card { padding: 6px 10px; }
   .over-columns { grid-template-columns: 1fr; }
   .screen.side { align-items: flex-end; justify-content: center; padding-bottom: 160px; }
   .panel { padding: 16px 18px 18px; }

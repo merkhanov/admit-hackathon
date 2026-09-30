@@ -1,5 +1,5 @@
 import type { MoveEval, PartId } from '../dance/judge.ts';
-import type { MoveTarget } from '../dance/moves.ts';
+import { drawBend, type MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
 import { IDX, SKELETON } from '../pose/landmarks.ts';
 import type { TrackerOutput } from '../pose/tracker.ts';
@@ -68,8 +68,8 @@ export class PoseView {
       for (const [s, idx] of shoulders) {
         const sh = P(idx);
         const sign = s === 'L' ? -1 : 1;
-        const { dir, elbow } = target.arms[s];
-        const bend = 180 - elbow;
+        const { dir } = target.arms[s];
+        const bend = drawBend(target.arms[s]);
         const upper = (dir - bend / 2) * RAD, fore = (dir + bend / 2) * RAD;
         const ex = sh.x + (sign * Math.sin(upper) * reach) / 2, ey = sh.y + (Math.cos(upper) * reach) / 2;
         ctx.beginPath();

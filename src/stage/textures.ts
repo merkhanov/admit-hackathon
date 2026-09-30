@@ -23,12 +23,10 @@ export function toonRamp(): DataTexture {
   return t;
 }
 
-/** Magenta-to-indigo backdrop with soft light blobs, like a music video stage. */
-export const backdrop = () => canvasTexture(512, 512, (ctx) => {
+/** Three-colour backdrop with soft light blobs, like a music video stage. */
+export const backdrop = (stops: readonly string[]) => canvasTexture(512, 512, (ctx) => {
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0, '#ff2fb3');
-  g.addColorStop(0.45, '#8a2cff');
-  g.addColorStop(1, '#1a0f5c');
+  stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 512, 512);
   let seed = 9;
@@ -36,19 +34,18 @@ export const backdrop = () => canvasTexture(512, 512, (ctx) => {
   for (let i = 0; i < 26; i++) {
     const x = r() * 512, y = r() * 380, rad = 20 + r() * 90;
     const blob = ctx.createRadialGradient(x, y, 0, x, y, rad);
-    const hue = [320, 280, 190, 50][i % 4];
-    blob.addColorStop(0, `hsla(${hue}, 100%, 75%, 0.35)`);
-    blob.addColorStop(1, `hsla(${hue}, 100%, 60%, 0)`);
+    blob.addColorStop(0, 'rgba(255, 255, 255, 0.35)');
+    blob.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = blob;
     ctx.fillRect(x - rad, y - rad, rad * 2, rad * 2);
   }
 });
 
-/** Dance-floor tile: a dark square with a bright rim; tinted per tile. */
+/** Dance-floor tile: a light square with a bright rim; tinted per tile. */
 export const floorTile = () => canvasTexture(128, 128, (ctx) => {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 128, 128);
-  ctx.fillStyle = '#2a2a2a';
+  ctx.fillStyle = '#dcdcdc';
   ctx.fillRect(8, 8, 112, 112);
   const g = ctx.createRadialGradient(64, 64, 10, 64, 64, 80);
   g.addColorStop(0, 'rgba(255,255,255,0.5)');

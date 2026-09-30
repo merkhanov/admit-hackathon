@@ -366,6 +366,14 @@ Enters by rising 12 px and fading in over `base` with `out`. No shake, no flash,
 - «Что подтянуть» (`.advice`): numbered list, numbers in `grape` 900.
 - Leaderboard (`.board`): `lilac` rows, `radius-sm`; the player's row is `sunshine`. Place number in `grape` 900, stars and date in `ink-soft` `small`.
 - Restart prompt (`.restart`): a sticky footer strip in `lilac` with `ink-soft` text during the lock countdown; in `.ready` it becomes `grape` with `cloud` text and a raised-hand pictogram, breathing (scale 1 → 1.03) every 1.4 s.
+- Song switch (`.song-switch`): one line above the restart prompt, «← Наклонись влево: «…»» on the left and «Наклонись вправо: «…» →» on the right, in `small` type. Only the breathing restart line animates.
+
+### Song picker
+
+- Song cards (`.song-card`): a grid of `cloud` buttons, `radius-md`, `float` shadow, three across on desktop and one per row on phones. Each has the song's signature pictogram (44 px, `ink`), the title in 900 18 px, the credit in `grape-deep` 800 and the length and move count in `small` `ink-soft`.
+- Selected card: `sunshine` fill and `aria-pressed="true"`. The selected song's dances and coach are one line under the grid, not on every card, so the start button stays above the fold at 1280 × 800.
+- Own-song picker (`.file-pick`): a dashed `lavender` outline box under the start button, never above it. States: idle (what files work, and that the file stays on the device), loading («Слушаю «…» и ищу ритм…»), error (`tangerine-soft` box with the reason). A song with an unclear beat shows its warning in `tangerine` text under the grid.
+- Each song brings its stage theme (backdrop, floor, rim lamps) and the coach's hat: none, cap, papakha, bow, crown or kalpak. Theme colours stay inside the candy palette, and every backdrop is light.
 
 ### Loading and error
 

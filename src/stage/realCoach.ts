@@ -3,11 +3,16 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
 import { CoachMotion, type CoachView } from './coach.ts';
+import { buildHat } from './hats.ts';
+import type { Hat } from './themes.ts';
 
 const RAD = Math.PI / 180;
 const HEIGHT = 2.25;
 /** Tilts limb directions slightly towards the camera, so elbows bend forward rather than flipping. */
 const TOWARD_CAMERA = 0.12;
+/** Head radius as a share of the head bone's length, and how far up the skull a hat sits. */
+const HEAD_RADIUS = 0.8;
+const HAT_SEAT = 1.08;
 
 interface Chain { arm: Bone; fore: Bone; hand: Bone }
 
@@ -38,6 +43,10 @@ export class RealCoach implements CoachView {
   private readonly rest = new Map<Bone, Quaternion>();
   private readonly model: Object3D;
   private readonly baseY: number;
+  private readonly head: Bone;
+  /** Top of the skull in the head bone's space. */
+  private readonly headTop: Vector3;
+  private hat: Group | null = null;
 
   static async load(url: string): Promise<RealCoach> {
     const gltf = await new GLTFLoader().loadAsync(url);
@@ -69,11 +78,25 @@ export class RealCoach implements CoachView {
     this.spine = findBone(model, 'mixamorig:Spine');
     this.hips = findBone(model, 'mixamorig:Hips');
     this.neck = findBone(model, 'mixamorig:Neck');
+    this.head = findBone(model, 'mixamorig:Head');
+    this.headTop = findBone(model, 'mixamorig:HeadTop_End').position.clone();
     this.upLeg = { L: findBone(model, 'mixamorig:RightUpLeg'), R: findBone(model, 'mixamorig:LeftUpLeg') };
     this.leg = { L: findBone(model, 'mixamorig:RightLeg'), R: findBone(model, 'mixamorig:LeftLeg') };
     for (const b of [this.arms.L.arm, this.arms.L.fore, this.arms.R.arm, this.arms.R.fore, this.spine, this.hips, this.neck, this.upLeg.L, this.upLeg.R, this.leg.L, this.leg.R]) {
       this.rest.set(b, b.quaternion.clone());
     }
+  }
+
+  setHat(hat: Hat): void {
+    if (this.hat) this.head.remove(this.hat);
+    this.hat = buildHat(hat);
+    if (!this.hat) return;
+    // The head bone runs from the base of the skull to its top: the head's radius is about half of that.
+    const radius = this.headTop.length() * HEAD_RADIUS;
+    this.hat.scale.multiplyScalar(radius);
+    this.hat.position.multiplyScalar(radius);
+    this.hat.position.add(this.headTop.clone().multiplyScalar(HAT_SEAT));
+    this.head.add(this.hat);
   }
 
   update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void {

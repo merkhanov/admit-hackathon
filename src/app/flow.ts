@@ -9,7 +9,13 @@ export type Phase =
   | { kind: 'warmup'; step: number; held: number; doneAt: number | null; skipped: boolean }
   | { kind: 'countdown' }
   | { kind: 'dancing' }
-  | { kind: 'results' };
+  | { kind: 'results'; lean: LeanSwitch };
+
+/** Leaning to pick the next song on the results screen: a lean must be held, then released before the next one. */
+export interface LeanSwitch {
+  held: number;
+  armed: boolean;
+}
 
 export interface Flow {
   phase: Phase;
@@ -18,7 +24,7 @@ export interface Flow {
   seenWarmup: boolean;
 }
 
-export type FlowCommand = 'recalibrate' | 'stepDone' | 'stepSkipped' | 'tick' | 'startSong' | 'finish';
+export type FlowCommand = 'recalibrate' | 'stepDone' | 'stepSkipped' | 'tick' | 'startSong' | 'finish' | 'nextSong' | 'prevSong';
 
 export interface WarmupStep {
   move: MoveId;
@@ -43,6 +49,14 @@ export const STEP_WARN_S = 8;
 export const COUNTDOWN_S = 3;
 /** The results screen ignores gestures this long, so the last dance move doesn't restart the song. */
 export const RESTART_LOCK_S = 3;
+/**
+ * Shoulder tilt that picks another song on the results screen, and how long to hold it.
+ * Raising one hand hikes that shoulder by up to ~12°, so a restart gesture never switches songs.
+ */
+export const LEAN_SWITCH_DEG = 18;
+export const LEAN_SWITCH_S = 0.5;
+/** Back below this tilt before the next lean counts. */
+export const LEAN_RELEASE_DEG = 8;
 
 export const initFlow = (): Flow => ({ phase: { kind: 'intro' }, t: 0, seenWarmup: false });
 
@@ -62,6 +76,23 @@ export interface FlowInput {
   /** How well the body matches the current warm-up pose, 0..1, or null when nobody is visible. */
   poseScore: number | null;
   songOver: boolean;
+  /** Shoulder tilt in degrees, positive = leaning to the player's own left. Null when nobody is visible. */
+  tilt?: number | null;
+  /** The song's music is ready to play. The countdown waits for it. Defaults to true. */
+  songReady?: boolean;
+}
+
+const results = (): Phase => ({ kind: 'results', lean: { held: 0, armed: true } });
+
+/** Pure step of the lean gesture: -1 = leaned left (previous song), 1 = right (next), 0 = nothing yet. */
+export function stepLean(lean: LeanSwitch, tilt: number | null, dt: number): { lean: LeanSwitch; fired: -1 | 0 | 1 } {
+  const t = tilt ?? 0;
+  if (!lean.armed) return { lean: { held: 0, armed: Math.abs(t) < LEAN_RELEASE_DEG }, fired: 0 };
+  if (Math.abs(t) < LEAN_SWITCH_DEG) return { lean: { held: 0, armed: true }, fired: 0 };
+  const held = lean.held + dt;
+  if (held < LEAN_SWITCH_S) return { lean: { held, armed: true }, fired: 0 };
+  // Leaning to one's own left is the screen's left in the mirrored view: the previous song.
+  return { lean: { held: 0, armed: false }, fired: t > 0 ? -1 : 1 };
 }
 
 /** Pure step of the screen sequence: calibration, warm-up, countdown, song, results. */
@@ -98,6 +129,7 @@ export function stepFlow(flow: Flow, input: FlowInput): { flow: Flow; commands: 
       return done(enter({ ...f, seenWarmup: true }, { kind: 'countdown' }));
     }
     case 'countdown':
+      if (f.t >= COUNTDOWN_S && input.songReady === false) return done({ ...f, t: COUNTDOWN_S });
       if (f.t >= COUNTDOWN_S) {
         commands.push('startSong');
         return done(enter(f, { kind: 'dancing' }));
@@ -107,13 +139,17 @@ export function stepFlow(flow: Flow, input: FlowInput): { flow: Flow; commands: 
     case 'dancing':
       if (!input.songOver) return done(f);
       commands.push('finish');
-      return done(enter(f, { kind: 'results' }));
-    case 'results':
-      if (f.t >= RESTART_LOCK_S && input.events.includes('jump')) {
+      return done(enter(f, results()));
+    case 'results': {
+      if (f.t < RESTART_LOCK_S) return done(f);
+      if (input.events.includes('jump')) {
         commands.push('recalibrate');
         return done(enter(f, { kind: 'calibrating' }));
       }
-      return done(f);
+      const r = stepLean(p.lean, input.tilt ?? null, input.dt);
+      if (r.fired) commands.push(r.fired < 0 ? 'prevSong' : 'nextSong');
+      return done({ ...f, phase: { ...p, lean: r.lean } });
+    }
     default: {
       const _exhaustive: never = p;
       return _exhaustive;

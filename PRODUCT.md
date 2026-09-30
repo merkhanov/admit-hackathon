@@ -25,7 +25,8 @@ Every screen exists to get the player into the song and back into it again. Each
 
 | Moment | The player's question | What the screen answers |
 |---|---|---|
-| Intro | What is this and what do I do? | One sentence, four example moves, one button. |
+| Intro | What is this and what do I do? | One sentence, the song list with the selected song highlighted, one button. |
+| Own song (optional) | Can I dance to my music? | A file picker under the button; the file is analysed in the browser and becomes a song card, with a warning if its beat is unclear. |
 | Loading | Is it working? | Progress with a number, and a reminder to allow the camera. |
 | Camera error | What went wrong and how do I fix it? | The reason in plain words and a retry button. |
 | Calibration | Where do I stand? | "Stand straight, arms down", a ring that fills while they hold still, framing hints if they are cut off. |
@@ -33,7 +34,7 @@ Every screen exists to get the player into the song and back into it again. Each
 | Countdown | When do I start? | 3, 2, 1 and the song's name. |
 | Song | Did that move count? What do I fix? | A rating word after every move, a hint for the worst body part, the ghost target, the score and star gauge. |
 | Results | How did I do and how do I get better? | Stars, score, rating counts, accuracy per body part, the three things to work on, local records. |
-| Replay | How do I go again without touching anything? | "Raise a hand over your head", after a short lock so a celebrating player doesn't restart by accident. |
+| Replay | How do I go again without touching anything? | "Raise a hand over your head", after a short lock so a celebrating player doesn't restart by accident. Leaning left or right picks the previous or next song first. |
 
 After the camera permission click the whole loop runs on gestures. Nothing may ask for a tap, a key or a mouse.
 
