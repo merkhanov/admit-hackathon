@@ -11,20 +11,33 @@ const TOWARD_CAMERA = 0.12;
 
 interface Chain { arm: Bone; fore: Bone; hand: Bone }
 
+/**
+ * Finds a Mixamo-standard bone such as "RightForeArm". Mixamo files name it "mixamorig:RightForeArm"
+ * (GLTFLoader drops the ':'), Ready Player Me files use the bare name; all three are accepted.
+ */
 function findBone(root: Object3D, name: string): Bone {
   let found: Bone | null = null;
-  // GLTFLoader strips the ':' from Mixamo names, so match both spellings.
   root.traverse((o) => {
-    if (!found && o instanceof Bone && (o.name === name || o.name === name.replace(':', ''))) found = o;
+    if (!found && o instanceof Bone && (o.name === name || o.name === `mixamorig${name}` || o.name === `mixamorig:${name}`)) found = o;
   });
   if (!found) throw new Error(`Bone ${name} not found`);
   return found;
 }
 
+export interface RealCoachOptions {
+  /** Standing height in scene units. The coach is 2.25; avatars are smaller. */
+  height?: number;
+  /** Shadows cost a pass per mesh; avatars skip them. */
+  castShadow?: boolean;
+}
+
+const gltfCache = new Map<string, Promise<Object3D>>();
+
 /**
- * A rigged human dancer (Mixamo's "Michelle" from the three.js examples) driven by the same eased
- * angles as the cartoon coach. She faces the camera, so her anatomical right arm is on screen-left:
- * that is target arm "L", which the player copies with their own left arm.
+ * A rigged human dancer with a Mixamo-standard skeleton (the coach is Michelle; player avatars are
+ * Xbot, Soldier and a Ready Player Me avatar), driven by the same eased angles as the cartoon coach.
+ * It faces the camera, so its anatomical right arm is on screen-left: that is target arm "L",
+ * which the player copies with their own left arm.
  */
 export class RealCoach implements CoachView {
   readonly group = new Group();
@@ -39,21 +52,34 @@ export class RealCoach implements CoachView {
   private readonly model: Object3D;
   private readonly baseY: number;
 
-  static async load(url: string): Promise<RealCoach> {
-    const gltf = await new GLTFLoader().loadAsync(url);
-    return new RealCoach(gltf.scene);
+  /** Loads a model once per URL; each URL is used by one dancer, so no skeleton cloning is needed. */
+  static async load(url: string, options: RealCoachOptions = {}): Promise<RealCoach> {
+    let scene = gltfCache.get(url);
+    if (!scene) {
+      scene = new GLTFLoader().loadAsync(url).then((g) => g.scene);
+      gltfCache.set(url, scene);
+    }
+    return new RealCoach(await scene, options);
   }
 
-  private constructor(model: Object3D) {
+  private constructor(model: Object3D, { height = HEIGHT, castShadow = true }: RealCoachOptions) {
     this.model = model;
     model.traverse((o) => {
       if (o instanceof Mesh) {
-        o.castShadow = true;
+        o.castShadow = castShadow;
         o.frustumCulled = false; // skinned bounds don't follow the pose
       }
     });
+    // Face the camera: a dancer facing us has their own left shoulder on screen-right (+x).
+    model.updateMatrixWorld(true);
+    const l = findBone(model, 'LeftArm').getWorldPosition(new Vector3());
+    const r = findBone(model, 'RightArm').getWorldPosition(new Vector3());
+    if (l.x < r.x) {
+      model.rotation.y += Math.PI;
+      model.updateMatrixWorld(true);
+    }
     const box = new Box3().setFromObject(model);
-    const scale = HEIGHT / (box.max.y - box.min.y);
+    const scale = height / (box.max.y - box.min.y);
     model.scale.multiplyScalar(scale);
     this.baseY = -box.min.y * scale;
     model.position.y = this.baseY;
@@ -61,16 +87,16 @@ export class RealCoach implements CoachView {
 
     // Screen-left arm (target L) is her anatomical right.
     const chain = (side: 'Left' | 'Right'): Chain => ({
-      arm: findBone(model, `mixamorig:${side}Arm`),
-      fore: findBone(model, `mixamorig:${side}ForeArm`),
-      hand: findBone(model, `mixamorig:${side}Hand`),
+      arm: findBone(model, `${side}Arm`),
+      fore: findBone(model, `${side}ForeArm`),
+      hand: findBone(model, `${side}Hand`),
     });
     this.arms = { L: chain('Right'), R: chain('Left') };
-    this.spine = findBone(model, 'mixamorig:Spine');
-    this.hips = findBone(model, 'mixamorig:Hips');
-    this.neck = findBone(model, 'mixamorig:Neck');
-    this.upLeg = { L: findBone(model, 'mixamorig:RightUpLeg'), R: findBone(model, 'mixamorig:LeftUpLeg') };
-    this.leg = { L: findBone(model, 'mixamorig:RightLeg'), R: findBone(model, 'mixamorig:LeftLeg') };
+    this.spine = findBone(model, 'Spine');
+    this.hips = findBone(model, 'Hips');
+    this.neck = findBone(model, 'Neck');
+    this.upLeg = { L: findBone(model, 'RightUpLeg'), R: findBone(model, 'LeftUpLeg') };
+    this.leg = { L: findBone(model, 'RightLeg'), R: findBone(model, 'LeftLeg') };
     for (const b of [this.arms.L.arm, this.arms.L.fore, this.arms.R.arm, this.arms.R.fore, this.spine, this.hips, this.neck, this.upLeg.L, this.upLeg.R, this.leg.L, this.leg.R]) {
       this.rest.set(b, b.quaternion.clone());
     }
@@ -81,7 +107,8 @@ export class RealCoach implements CoachView {
     for (const [b, q] of this.rest) b.quaternion.copy(q);
 
     const bounce = Math.abs(Math.sin(Math.PI * beatPhase));
-    this.group.position.x = Math.sin((beatIndex + beatPhase) * Math.PI) * 0.05;
+    // Sway the model inside the group: the group position belongs to the stage (avatar slots).
+    this.model.position.x = Math.sin((beatIndex + beatPhase) * Math.PI) * 0.05;
     this.model.position.y = this.baseY - p.squat * 0.45 - (1 - bounce) * 0.04;
     this.model.updateMatrixWorld(true);
 

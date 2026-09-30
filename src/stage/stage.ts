@@ -39,6 +39,10 @@ export interface CrewMember {
 /** Where avatars stand: beside the coach, a little behind, smaller. Up to three other players. */
 const CREW_SLOTS: readonly { x: number; z: number }[] = [{ x: -2.3, z: -1 }, { x: 2.3, z: -1 }, { x: -3.5, z: -1.8 }];
 const CREW_SCALE = 0.62;
+/** Name tags float just above a raised hand of a crew avatar. */
+const TAG_HEIGHT = 2.95 * CREW_SCALE;
+/** One distinct realistic model per slot, loaded only when a room has other players. */
+const CREW_MODELS: readonly string[] = ['models/xbot.glb', 'models/soldier.glb', 'models/avatar.glb'];
 const CREW_OUTFITS: readonly Outfit[] = [
   { top: 0x56f3c1, pants: 0x8140d0, hair: 0x271f46 },
   { top: 0xffda4b, pants: 0x8cd1fa, hair: 0xfe8b85 },
@@ -49,6 +53,8 @@ const CREW_OUTFITS: readonly Outfit[] = [
 export interface StageView {
   /** Other players to draw as avatars; an empty list hides them. */
   setCrew(members: readonly CrewMember[]): void;
+  /** Starts loading the avatar models ahead of the song. */
+  preloadCrew(): void;
   resize(): void;
   react(rating: Rating, paletteKey?: string): void;
   draw(frame: StageFrame, dt: number): void;
@@ -65,11 +71,15 @@ export class Stage implements StageView {
   private readonly confetti: Confetti[] = [];
   private readonly confettiMesh: InstancedMesh;
   private readonly dummy = new Object3D();
+  private readonly tagPos = new Vector3();
   private readonly color = new Color();
   private lastBeat = -1;
   private shake = 0;
   private readonly ramp: Texture;
-  private readonly crew = new Map<string, { coach: Coach; tag: HTMLDivElement; slot: number; pose: MoveTarget | null }>();
+  private readonly crew = new Map<string, { coach: CoachView; tag: HTMLDivElement; slot: number; pose: MoveTarget | null }>();
+  /** Realistic avatar per slot once loaded; until then the slot shows a cartoon figure. */
+  private readonly crewModels: (RealCoach | null)[] = CREW_MODELS.map(() => null);
+  private crewLoading = false;
   private readonly tagLayer: HTMLDivElement;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -174,7 +184,31 @@ export class Stage implements StageView {
     this.camera.updateProjectionMatrix();
   }
 
+  /** Starts downloading the avatar models, so they're ready when the song starts. Safe to call often. */
+  preloadCrew(): void {
+    if (this.crewLoading) return;
+    this.crewLoading = true;
+    CREW_MODELS.forEach((url, slot) => {
+      RealCoach.load(`${import.meta.env.BASE_URL}${url}`, { height: 2.25 * CREW_SCALE, castShadow: false }).then(
+        (real) => {
+          this.crewModels[slot] = real;
+          // Swap the cartoon placeholder for the real model if that slot is already on stage.
+          for (const a of this.crew.values()) if (a.slot === slot) this.placeAvatar(a, real);
+        },
+        (err: unknown) => console.warn('Avatar model unavailable, keeping the cartoon figure', url, err),
+      );
+    });
+  }
+
+  private placeAvatar(a: { coach: CoachView; slot: number }, view: CoachView): void {
+    this.scene.remove(a.coach.group);
+    a.coach = view;
+    view.group.position.set(CREW_SLOTS[a.slot].x, 0, CREW_SLOTS[a.slot].z);
+    this.scene.add(view.group);
+  }
+
   setCrew(members: readonly CrewMember[]): void {
+    if (members.length > 0) this.preloadCrew();
     const keep = new Set(members.slice(0, CREW_SLOTS.length).map((m) => m.id));
     for (const [id, a] of this.crew) {
       if (keep.has(id)) continue;
@@ -187,10 +221,15 @@ export class Stage implements StageView {
       if (!a) {
         const used = new Set([...this.crew.values()].map((c) => c.slot));
         const slot = CREW_SLOTS.findIndex((_, i) => !used.has(i));
-        const coach = new Coach(this.ramp, CREW_OUTFITS[slot % CREW_OUTFITS.length]);
-        coach.group.scale.setScalar(CREW_SCALE);
+        const real = this.crewModels[slot];
+        let coach: CoachView;
+        if (real) {
+          coach = real;
+        } else {
+          coach = new Coach(this.ramp, CREW_OUTFITS[slot % CREW_OUTFITS.length]);
+          coach.group.scale.setScalar(CREW_SCALE);
+        }
         coach.group.position.set(CREW_SLOTS[slot].x, 0, CREW_SLOTS[slot].z);
-        coach.group.traverse((o) => { if (o instanceof Mesh) o.castShadow = true; });
         this.scene.add(coach.group);
         const tag = document.createElement('div');
         tag.className = 'crew-tag';
@@ -249,7 +288,10 @@ export class Stage implements StageView {
   private placeTags(): void {
     const w = window.innerWidth, h = window.innerHeight;
     for (const a of this.crew.values()) {
-      const head = new Vector3(0, 2.95, 0).applyMatrix4(a.coach.group.matrixWorld).project(this.camera);
+      // Anchor in world units: the cartoon group is scaled, the real models are sized at load.
+      const head = this.tagPos.setFromMatrixPosition(a.coach.group.matrixWorld);
+      head.y += TAG_HEIGHT;
+      head.project(this.camera);
       a.tag.style.transform = `translate(${((head.x + 1) / 2) * w}px, ${((1 - head.y) / 2) * h}px) translate(-50%, -100%)`;
     }
   }

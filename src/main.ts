@@ -359,7 +359,10 @@ function frame(now: number, dt: number): void {
   const coachIndex = dancing ? stepAt(song, songTime() + COACH_LEAD_S) : -1;
   const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[song.steps[coachIndex].move] : null;
   // Other players dance as avatars beside the coach on wide screens; phones keep the stage clear.
-  const showCrew = dancing && window.innerWidth >= CREW_MIN_WIDTH;
+  const wide = window.innerWidth >= CREW_MIN_WIDTH;
+  // Fetch the avatar models while the room waits in the lobby, not when the song starts.
+  if (wide && Object.keys(mp.getState().players).length > 1) stage.preloadCrew();
+  const showCrew = dancing && wide;
   stage.setCrew(showCrew ? crewMembers(now) : []);
   stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing }, dt);
 

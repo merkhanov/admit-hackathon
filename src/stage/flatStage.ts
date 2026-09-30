@@ -25,6 +25,8 @@ export class FlatStage implements StageView {
   /** The flat fallback shows only the coach. */
   setCrew(): void {}
 
+  preloadCrew(): void {}
+
   react(rating: Rating): void {
     if (rating === 'perfect') this.flash = 1;
   }
