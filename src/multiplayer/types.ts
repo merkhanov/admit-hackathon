@@ -49,7 +49,7 @@ export type MPMessage =
   | { type: 'songSelect'; songId: SongId }
   | { type: 'songStart'; songId: SongId; startedAt: number }
   | { type: 'liveScore'; playerId: string; score: number; combo: number }
-  /** About 10 times a second while dancing, so desktops can draw every player's avatar. */
+  /** About 15 times a second while the camera is on, so desktops can draw every player's avatar. */
   | { type: 'pose'; playerId: string; pose: CompactPose }
   | { type: 'result'; playerId: string; score: number; stars: number; accuracy: number }
   | { type: 'podium'; entries: PodiumEntry[] }

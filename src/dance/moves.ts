@@ -23,6 +23,8 @@ export interface MoveTarget {
   /** Shoulder tilt in degrees, positive = leaning to the player's own left. */
   tilt: number;
   squat: boolean;
+  /** How deep the squat is, 0..1, when an avatar mirrors a live body. Defaults to `squat` ? 1 : 0. */
+  depth?: number;
 }
 
 export type MoveId =

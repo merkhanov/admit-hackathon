@@ -28,6 +28,15 @@ describe('pose codec', () => {
   });
 });
 
+describe('avatar squat depth', () => {
+  it('a half squat bends the avatar halfway instead of snapping to full or none', () => {
+    const half: CompactPose = [0, 180, 0, 180, 0, 40];
+    expect(unpackPose(half).depth).toBeCloseTo(0.4);
+    expect(unpackPose(half).squat).toBe(false);
+    expect(unpackPose([0, 180, 0, 180, 0, 100]).depth).toBe(1);
+  });
+});
+
 /** An in-memory star network: every message a peer sends reaches all the others. */
 function hub() {
   const peers: { deliver: (m: MPMessage) => void; event: (e: TransportEvent) => void }[] = [];

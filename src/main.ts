@@ -150,6 +150,10 @@ const POSE_STALE_MS = 1500;
 /** Screens narrower than this (phones) don't draw the other players' avatars. */
 const CREW_MIN_WIDTH = 900;
 
+/** Phases where the camera runs and the other players' avatars mirror them live. */
+const livePhase = (kind: Flow['phase']['kind']): boolean =>
+  kind === 'calibrating' || kind === 'warmup' || kind === 'waiting' || kind === 'countdown' || kind === 'dancing';
+
 function crewMembers(now: number): CrewMember[] {
   return Object.values(mp.getState().players)
     .filter((p) => p.id !== mp.self)
@@ -382,11 +386,12 @@ function frame(now: number, dt: number): void {
       lastLiveScoreAt = now;
       mp.sendLiveScore(dance.points, dance.combo);
     }
-    // Stream our pose so desktops in the room can draw us dancing.
-    if (mp.getState().roomId && body && now - lastPoseAt >= MPManager.POSE_MS) {
-      lastPoseAt = now;
-      mp.sendPose(packPose(body));
-    }
+  }
+  // Stream our pose whenever the camera sees us, from calibration to the last beat,
+  // so desktops in the room show us moving live, not only once the song starts.
+  if (inRoom() && body && livePhase(flow.phase.kind) && now - lastPoseAt >= MPManager.POSE_MS) {
+    lastPoseAt = now;
+    mp.sendPose(packPose(body));
   }
 
   const kind = flow.phase.kind;
@@ -398,7 +403,7 @@ function frame(now: number, dt: number): void {
   const wide = window.innerWidth >= CREW_MIN_WIDTH;
   // Fetch the avatar models while the room waits in the lobby, not when the song starts.
   if (wide && Object.keys(mp.getState().players).length > 1) stage.preloadCrew();
-  const showCrew = dancing && wide;
+  const showCrew = livePhase(kind) && wide;
   stage.setCrew(showCrew ? crewMembers(now) : []);
   stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing }, dt);
 

@@ -22,5 +22,6 @@ export function unpackPose([dirL, elbowL, dirR, elbowR, tilt, squat]: CompactPos
     arms: { L: { dir: dirL, elbow: elbowL }, R: { dir: dirR, elbow: elbowR } },
     tilt,
     squat: squat >= 50,
+    depth: Math.max(0, Math.min(1, squat / 100)),
   };
 }

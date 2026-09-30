@@ -105,8 +105,8 @@ export class MPManager {
     this.dispatch({ type: 'liveScore', playerId: this.selfId, score, combo });
   }
 
-  /** How often a client streams its pose during the dance (ms). */
-  static readonly POSE_MS = 100;
+  /** How often a client streams its pose while its camera is on (ms): about 15 times a second. */
+  static readonly POSE_MS = 66;
 
   sendPose(pose: CompactPose): void {
     if (!this.state.roomId) return;

@@ -46,7 +46,7 @@ export class CoachMotion {
       p.bend[s] += (bend - p.bend[s]) * k;
     }
     p.tilt += ((target?.tilt ?? 0) - p.tilt) * k;
-    p.squat += ((target?.squat ? 1 : 0) - p.squat) * k;
+    p.squat += ((target ? target.depth ?? (target.squat ? 1 : 0) : 0) - p.squat) * k;
     return p;
   }
 }
