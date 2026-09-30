@@ -40,7 +40,7 @@ describe('multiplayer session', () => {
     let s = emptyState();
     s = stepSession(s, join('a', 'Alice')).state;
     s = stepSession(s, { type: 'liveScore', playerId: 'a', score: 100, combo: 2 }).state;
-    const { state } = stepSession(s, { type: 'songStart', songId: 'neonSteps', startedAt: 0 });
+    const { state } = stepSession(s, { type: 'songStart', songId: 'neon', startedAt: 0 });
     expect(state.phase).toBe('dancing');
     expect(state.players.a.score).toBe(0);
     expect(state.players.a.status).toBe('dancing');
@@ -66,7 +66,7 @@ describe('multiplayer session', () => {
   it('reset returns everyone to lobby', () => {
     let s = emptyState();
     s = stepSession(s, join('a', 'Alice')).state;
-    s = stepSession(s, { type: 'songStart', songId: 'neonSteps', startedAt: 0 }).state;
+    s = stepSession(s, { type: 'songStart', songId: 'neon', startedAt: 0 }).state;
     s = stepSession(s, { type: 'result', playerId: 'a', score: 500, stars: 4, accuracy: 88 }).state;
     const { state } = stepSession(s, { type: 'reset' });
     expect(state.phase).toBe('lobby');

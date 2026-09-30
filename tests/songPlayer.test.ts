@@ -3,7 +3,7 @@ import { SongPlayer, type AudioClock } from '../src/audio/music.ts';
 
 /** An AudioContext stand-in: iOS Safari leaves one created outside a tap 'suspended', with a frozen clock. */
 function fakeContext(state: AudioContextState): AudioClock {
-  return { state, currentTime: 0, outputLatency: 0, destination: {} as AudioDestinationNode, createBufferSource: () => { throw new Error('no audio'); } };
+  return { state, currentTime: 0, outputLatency: 0, destination: {} as AudioDestinationNode, createBufferSource: () => { throw new Error('no audio'); }, createGain: () => { throw new Error('no audio'); } };
 }
 
 describe('SongPlayer', () => {

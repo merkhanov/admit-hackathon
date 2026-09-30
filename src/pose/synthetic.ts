@@ -21,7 +21,7 @@ export interface SynthParams {
 }
 
 export const NEUTRAL: SynthParams = {
-  cx: 0.5, sy: 0.42, sw: 0.22, tilt: 0, drop: 0, rUp: -1.4, rOut: 0.15, lUp: -1.4, lOut: 0.15, vis: 1,
+  cx: 0.5, sy: 0.42, sw: 0.22, tilt: 0, drop: 0, rUp: -1.48, rOut: 0.16, lUp: -1.48, lOut: 0.16, vis: 1,
 };
 
 export const SYNTH_ASPECT = 4 / 3;

@@ -8,6 +8,12 @@ import type { Side } from '../pose/features.ts';
 export interface ArmTarget {
   dir: number;
   elbow: number;
+  /**
+   * The elbow sits on the low side of the shoulder-to-wrist line (hands on hips, arms crossed,
+   * fists holding reins) instead of the high side. Only the coach and pictograms use it:
+   * the judge scores the elbow angle, which is the same either way.
+   */
+  low?: boolean;
 }
 
 export interface MoveTarget {
@@ -20,10 +26,20 @@ export interface MoveTarget {
 }
 
 export type MoveId =
-  | 'up' | 'vee' | 'wings' | 'leftUp' | 'rightUp' | 'discoL' | 'discoR' | 'muscles' | 'leanL' | 'leanR' | 'squat';
+  | 'up' | 'vee' | 'wings' | 'leftUp' | 'rightUp' | 'discoL' | 'discoR' | 'muscles' | 'leanL' | 'leanR' | 'squat'
+  | 'hips' | 'cross' | 'headHands' | 'letterC' | 'flossL' | 'flossR' | 'dabL' | 'dabR'
+  | 'prisyadka' | 'hankyL' | 'hankyR' | 'rider' | 'whipL' | 'whipR';
 
-const arm = (dir: number, elbow = 180): ArmTarget => ({ dir, elbow });
+const arm = (dir: number, elbow = 180, low = false): ArmTarget => (low ? { dir, elbow, low } : { dir, elbow });
 const DOWN = arm(10);
+/** Hand on the hip, elbow out to the side. */
+const HIP = arm(0, 60, true);
+/** Hand on the opposite shoulder, forearm across the chest. */
+const CROSS = arm(-90, 75, true);
+/** Hands on top of the head, elbows out. */
+const HEAD = arm(-150, 60);
+/** Fists in front of the chest, holding reins. */
+const REINS = arm(-50, 50, true);
 
 export const MOVES: Record<MoveId, MoveTarget> = {
   up: { name: 'Руки вверх', arms: { L: arm(180), R: arm(180) }, tilt: 0, squat: false },
@@ -37,6 +53,28 @@ export const MOVES: Record<MoveId, MoveTarget> = {
   leanL: { name: 'Наклон влево', arms: { L: arm(90), R: arm(170) }, tilt: 15, squat: false },
   leanR: { name: 'Наклон вправо', arms: { L: arm(170), R: arm(90) }, tilt: -15, squat: false },
   squat: { name: 'Присед', arms: { L: arm(90), R: arm(90) }, tilt: 0, squat: true },
+
+  // Poses from well-known dances. Only the shapes are borrowed, never music or footage.
+  hips: { name: 'Руки в боки', arms: { L: HIP, R: HIP }, tilt: 0, squat: false },
+  cross: { name: 'Руки крест-накрест', arms: { L: CROSS, R: CROSS }, tilt: 0, squat: false },
+  headHands: { name: 'Руки на голову', arms: { L: HEAD, R: HEAD }, tilt: 0, squat: false },
+  letterC: { name: 'Буква C', arms: { L: arm(155, 120), R: arm(-75, 150) }, tilt: 0, squat: false },
+  flossL: { name: 'Флосс влево', arms: { L: arm(50, 170), R: arm(-50, 170) }, tilt: 0, squat: false },
+  flossR: { name: 'Флосс вправо', arms: { L: arm(-50, 170), R: arm(50, 170) }, tilt: 0, squat: false },
+  dabL: { name: 'Дэб влево', arms: { L: arm(130), R: arm(-115, 70) }, tilt: 0, squat: false },
+  dabR: { name: 'Дэб вправо', arms: { L: arm(-115, 70), R: arm(130) }, tilt: 0, squat: false },
+  prisyadka: { name: 'Присядка', arms: { L: CROSS, R: CROSS }, tilt: 0, squat: true },
+  hankyL: { name: 'Платочек слева', arms: { L: arm(150, 160), R: HIP }, tilt: 0, squat: false },
+  hankyR: { name: 'Платочек справа', arms: { L: HIP, R: arm(150, 160) }, tilt: 0, squat: false },
+  rider: { name: 'Всадник', arms: { L: REINS, R: REINS }, tilt: 0, squat: false },
+  whipL: { name: 'Камча слева', arms: { L: arm(165, 110), R: REINS }, tilt: 0, squat: false },
+  whipR: { name: 'Камча справа', arms: { L: REINS, R: arm(165, 110) }, tilt: 0, squat: false },
 };
 
-export const MOVE_IDS: readonly MoveId[] = ['up', 'vee', 'wings', 'leftUp', 'rightUp', 'discoL', 'discoR', 'muscles', 'leanL', 'leanR', 'squat'];
+/**
+ * Signed elbow bend for drawing: the upper arm points at `dir - bend / 2`, the forearm at `dir + bend / 2`.
+ * A negative bend puts the elbow on the low side.
+ */
+export const drawBend = (a: ArmTarget): number => (a.low ? -1 : 1) * (180 - a.elbow);
+
+export const MOVE_IDS = Object.keys(MOVES) as readonly MoveId[];

@@ -9,6 +9,8 @@ export interface Step {
 }
 
 export interface Song {
+  /** Stable key for records and themes. */
+  id: string;
   title: string;
   bpm: number;
   /** Beats of music before the first move, while the coach warms up. */
@@ -17,19 +19,18 @@ export interface Song {
   steps: Step[];
 }
 
-const A: MoveId[] = ['wings', 'up', 'wings', 'up', 'leftUp', 'rightUp', 'leftUp', 'rightUp'];
-const B: MoveId[] = ['discoL', 'discoR', 'discoL', 'discoR', 'vee', 'muscles', 'vee', 'muscles'];
-const C: MoveId[] = ['leanL', 'leanR', 'leanL', 'leanR', 'squat', 'up', 'squat', 'wings'];
-const FINALE: MoveId[] = ['vee', 'up', 'wings', 'up'];
-
-function buildSong(): Song {
-  const introBeats = 8, beatsPerMove = 2, outroBeats = 8;
-  const moves = [...A, ...B, ...C, ...A, ...B, ...C, ...FINALE];
-  const steps = moves.map((move, i) => ({ move, beat: introBeats + i * beatsPerMove, beats: beatsPerMove }));
-  return { title: 'Neon Steps', bpm: 112, introBeats, totalBeats: introBeats + moves.length * beatsPerMove + outroBeats, steps };
+export interface SongShape {
+  introBeats?: number;
+  outroBeats?: number;
+  beatsPerMove?: number;
 }
 
-export const SONG: Song = buildSong();
+/** Lays moves out back to back after the intro, one every `beatsPerMove` beats. */
+export function buildSong(id: string, title: string, bpm: number, moves: readonly MoveId[], shape: SongShape = {}): Song {
+  const { introBeats = 8, outroBeats = 8, beatsPerMove = 2 } = shape;
+  const steps = moves.map((move, i) => ({ move, beat: introBeats + i * beatsPerMove, beats: beatsPerMove }));
+  return { id, title, bpm, introBeats, totalBeats: introBeats + moves.length * beatsPerMove + outroBeats, steps };
+}
 
 export const beatLength = (song: Song) => 60 / song.bpm;
 export const beatTime = (song: Song, beat: number) => beat * beatLength(song);

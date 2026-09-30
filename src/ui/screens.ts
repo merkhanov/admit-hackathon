@@ -1,14 +1,17 @@
-import { countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S, WARMUP, WARMUP_HOLD_S, type Flow } from '../app/flow.ts';
+import { COUNTDOWN_S, countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S, WARMUP, WARMUP_HOLD_S, type Flow } from '../app/flow.ts';
 import type { ScoreEntry } from '../app/leaderboard.ts';
 import type { PartAccuracy } from '../app/summary.ts';
+import type { FileStatus } from '../app/tracks.ts';
 import { RATING_NAMES, type Rating } from '../dance/dance.ts';
 import { MOVES, type MoveId } from '../dance/moves.ts';
-import { DEFAULT_SONG_ID, SONG_IDS, SONG_META, type SongId } from '../dance/songs.ts';
+import { songDuration, type Song } from '../dance/song.ts';
+import { songInfo } from '../dance/songs.ts';
 import { loadPlayerName, savePlayerName } from '../multiplayer/persistence.ts';
-import { mp, setSong, sharedPodium } from '../main.ts';
+import { mp, sharedPodium } from '../main.ts';
 import { pictogramSvg } from './pictogram.ts';
 
 export interface RoundResult {
+  songTitle: string;
   points: number;
   stars: number;
   counts: Record<Rating, number>;
@@ -20,14 +23,40 @@ export interface RoundResult {
   entry: ScoreEntry;
 }
 
+/** A song as the picker shows it. */
+export interface SongCard {
+  key: string;
+  song: Song;
+  credit: string;
+  dances: string;
+  coach: string;
+  warning: string | null;
+}
+
 export interface ScreenModel {
   flow: Flow;
+  songs: readonly SongCard[];
+  selected: SongCard;
+  /** Songs before and after the selected one, for the lean-to-switch hint on the results screen. */
+  prev: SongCard;
+  next: SongCard;
+  fileStatus: FileStatus;
+  /** The selected song's music is ready. */
+  songReady: boolean;
+  /** This device is in a multiplayer room: the host picks the song, song files and leaning are off. */
+  inRoom: boolean;
   calibProgress: number;
   /** Download share of the recognition model, 0..1. */
   loadProgress: number;
   result: RoundResult | null;
-  songTitle: string;
   demo: boolean;
+}
+
+export interface ScreenActions {
+  start(): void;
+  menu(): void;
+  pick(key: string): void;
+  file(file: File): void;
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
@@ -51,48 +80,58 @@ function makeRoomCode(): string {
 
 const mpStatusRu = (s: string): string => s === 'dancing' ? 'танцует' : s === 'done' ? 'готов' : 'в лобби';
 
-function selectedSong(songTitle: string): SongId {
-  try {
-    const sid = mp.getState().songId;
-    if (sid) return sid;
-  } catch { /* lobby without mp: fall back to title */
-  }
-  for (const id of SONG_IDS) {
-    if (SONG_META[id].title === songTitle) return id;
-  }
-  return DEFAULT_SONG_ID;
+const minutes = (seconds: number) => {
+  const s = Math.round(seconds);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/** The move that shows a song best: the first one that isn't a plain arms-out or arms-up. */
+function signatureMove(song: Song) {
+  const plain = new Set(['wings', 'up', 'vee']);
+  const step = song.steps.find((s) => !plain.has(s.move)) ?? song.steps[0];
+  return MOVES[step.move];
 }
 
-function songCardsHtml(current: SongId, interactive: boolean): string {
+function songCardHtml(c: SongCard, selected: boolean, interactive: boolean): string {
+  const inner = `
+        <span class="song-icon">${pictogramSvg(signatureMove(c.song), { outline: true })}</span>
+        <span class="song-text">
+          <strong>${esc(c.song.title)}</strong>
+          <em>${esc(c.credit)}</em>
+          <small>${minutes(songDuration(c.song))} · ${c.song.steps.length} движений</small>
+        </span>`;
   return `
-  <div class="song-cards">
-    ${SONG_IDS.map((id) => {
-      const meta = SONG_META[id];
-      const sel = id === current ? ' selected' : '';
-      const stars = '★'.repeat(meta.difficulty) + '☆'.repeat(5 - meta.difficulty);
-      const inner = `<strong>${esc(meta.title)}</strong><span>${meta.bpm} BPM</span><span class="song-diff">${stars}</span>`;
-      return interactive
-        ? `<button type="button" class="song-card${sel}" data-song-id="${id}">${inner}</button>`
-        : `<div class="song-card${sel}" data-song-id="${id}">${inner}</div>`;
-    }).join('')}
-  </div>`;
+    <li>
+      ${interactive
+        ? `<button type="button" class="song-card ${selected ? 'selected' : ''}" data-song="${esc(c.key)}" aria-pressed="${selected}">${inner}</button>`
+        : `<div class="song-card ${selected ? 'selected' : ''}">${inner}</div>`}
+    </li>`;
 }
 
-function lobbyHtml(songTitle: string, showJoin: boolean): string {
+function fileHtml(status: FileStatus): string {
+  const note = status.kind === 'loading' ? `Слушаю «${esc(status.name)}» и ищу ритм…`
+    : status.kind === 'error' ? esc(status.text)
+    : 'MP3, M4A, WAV или OGG с твоего устройства. Файл никуда не загружается: игра слушает его прямо в браузере и ставит движения на бит.';
+  return `
+    <label class="file-pick ${status.kind === 'error' ? 'file-error' : ''}">
+      <input type="file" id="song-file" accept="audio/*" ${status.kind === 'loading' ? 'disabled' : ''} />
+      <strong>${status.kind === 'loading' ? 'Готовлю танец…' : '+ Танцевать под свою песню'}</strong>
+      <span>${note}</span>
+    </label>`;
+}
+
+function lobbyHtml(m: ScreenModel, showJoin: boolean): string {
   let saved: string | null = null;
   try { saved = loadPlayerName(); } catch { saved = null; }
   let roomId: string | null = null;
   let players: { id: string; name: string; isHost: boolean; status: string }[] = [];
   let isHost = false;
-  let songId: SongId = DEFAULT_SONG_ID;
   try {
     const st = mp.getState();
     roomId = st.roomId;
     players = Object.values(st.players);
     isHost = st.isHost;
-    songId = st.songId ?? selectedSong(songTitle);
-  } catch {
-    songId = selectedSong(songTitle);
+  } catch { /* lobby without mp */
   }
   const count = players.length;
   const full = count >= 4;
@@ -126,16 +165,22 @@ function lobbyHtml(songTitle: string, showJoin: boolean): string {
       </ul>`}`
     : '';
 
+  // A song file stays on this device, so rooms only offer the built-in songs.
+  const songs = roomId ? m.songs.filter((c) => songInfo(c.key)) : m.songs;
+  const interactive = !roomId || isHost;
   const songsBlock = `
     <h3>Песня</h3>
     <p class="muted">${roomId ? (isHost ? 'Выберите песню для всех.' : 'Песню выбирает хост.') : 'Выберите песню.'}</p>
-    ${songCardsHtml(songId, !roomId || isHost)}`;
+    <ul class="song-grid">${songs.map((c) => songCardHtml(c, c.key === m.selected.key, interactive)).join('')}</ul>
+    <p class="song-about"><b>«${esc(m.selected.song.title)}»:</b> ${esc(m.selected.dances)}. Тренер: ${esc(m.selected.coach.toLowerCase())}.</p>
+    ${m.selected.warning ? `<p class="song-warning">${esc(m.selected.warning)}</p>` : ''}`;
 
   const startBlock = roomId
     ? (isHost
       ? `<button id="lobby-start" class="cta" type="button"${count < 1 ? ' disabled' : ''}>Начать танец</button>`
       : '<p class="muted">Ожидание хоста...</p>')
     : `<button id="start-btn" class="cta" type="button">Танцевать одному</button>
+       ${fileHtml(m.fileStatus)}
        <p class="muted">Или создайте комнату для игры с друзьями.</p>`;
 
   return `
@@ -239,17 +284,17 @@ function warmupHtml(step: number, done: boolean, skipped: boolean): string {
 const countdownHtml = (n: number, title: string) => `
   <section class="screen center countdown">
     <div class="count" id="count">${n}</div>
-    <p class="muted">Песня «${esc(title)}». Повторяй за тренером!</p>
+    <p class="muted" id="count-text">Песня «${esc(title)}». Повторяй за тренером!</p>
   </section>`;
 
-function resultsHtml(r: RoundResult): string {
+function resultsHtml(r: RoundResult, m: ScreenModel): string {
   const date = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const ratings: readonly Rating[] = ['perfect', 'good', 'ok', 'miss'];
   return `
   <section class="screen center over">
     <div class="over-card">
       <button id="results-menu" class="menu-x" type="button" aria-label="В главное меню" title="В главное меню">×</button>
-      <p class="chip ${r.place === 0 ? 'chip-record' : ''}">${r.place === 0 ? 'Новый рекорд!' : 'Танец окончен'}</p>
+      <p class="chip ${r.place === 0 ? 'chip-record' : ''}">${r.place === 0 ? 'Новый рекорд!' : 'Танец окончен'} · ${esc(r.songTitle)}</p>
       ${starRow(r.stars)}
       <div class="big-score">${r.points}</div>
       <ul class="stats">
@@ -275,30 +320,37 @@ function resultsHtml(r: RoundResult): string {
         </div>
       </div>
       ${podiumHtml()}
-      <p class="restart" id="restart">Подними руку над головой, чтобы станцевать ещё раз</p>
+      <div class="restart" id="restart">
+        ${m.inRoom ? '' : `<p class="song-switch">
+          <span>← Наклонись влево: «${esc(m.prev.song.title)}»</span>
+          <span>Наклонись вправо: «${esc(m.next.song.title)}» →</span>
+        </p>`}
+        <p id="restart-text">${esc(restartText(m))}</p>
+      </div>
     </div>
   </section>`;
 }
 
+const restartText = (m: ScreenModel) => {
+  const left = Math.ceil(RESTART_LOCK_S - m.flow.t);
+  return left > 0 ? `Можно начать через ${left} с` : `Подними руку над головой, чтобы станцевать «${m.selected.song.title}»`;
+};
+
 /** Renders the overlay for the current phase. Rebuilds DOM only when the phase changes. */
 export class Screens {
   private readonly root: HTMLElement;
-  private readonly onStart: () => void;
-  private readonly onMenu: () => void;
   private key = '';
   private showJoin = false;
 
-  constructor(root: HTMLElement, onStart: () => void, onMenu: () => void) {
+  constructor(root: HTMLElement, actions: ScreenActions) {
     this.root = root;
-    this.onStart = onStart;
-    this.onMenu = onMenu;
     root.addEventListener('click', (e) => {
       const target = e.target;
       if (!(target instanceof HTMLElement)) return;
       const btn = target.closest('button');
       const id = btn?.id ?? target.id;
-      if (id === 'start-btn' || id === 'retry-btn') { this.onStart(); return; }
-      if (id === 'results-menu' || id === 'lobby-menu' || id === 'loading-cancel' || id === 'error-menu') { this.onMenu(); return; }
+      if (id === 'start-btn' || id === 'retry-btn') { actions.start(); return; }
+      if (id === 'results-menu' || id === 'lobby-menu' || id === 'loading-cancel' || id === 'error-menu') { actions.menu(); return; }
       if (id === 'lobby-save-name') { this.saveName(); return; }
       if (id === 'lobby-create') { this.createRoom(); return; }
       if (id === 'lobby-join-toggle') { this.showJoin = true; return; }
@@ -306,24 +358,12 @@ export class Screens {
       if (id === 'lobby-start') { this.startDance(); return; }
       if (id === 'lobby-leave') { try { mp.disconnect(); } catch { /* ignore */ } this.showJoin = false; return; }
       if (id === 'lobby-again') { try { if (mp.amHost()) mp.resetRoom(); } catch { /* ignore */ } return; }
-      const songEl = target.closest('[data-song-id]');
-      if (songEl instanceof HTMLElement) {
-        const sid = songEl.getAttribute('data-song-id');
-        if (sid && (SONG_IDS as readonly string[]).includes(sid)) {
-          const songId = sid as SongId;
-          let inRoom = false;
-          let host = false;
-          try {
-            const st = mp.getState();
-            inRoom = st.roomId !== null;
-            host = st.isHost;
-          } catch { /* lobby without mp */
-          }
-          if (inRoom && !host) return;
-          try { setSong(songId); } catch { /* ignore */ }
-          try { if (inRoom && host) mp.selectSong(songId); } catch { /* ignore */ }
-        }
-      }
+      const card = target.closest<HTMLElement>('[data-song]');
+      if (card?.dataset.song) actions.pick(card.dataset.song);
+    });
+    root.addEventListener('change', (e) => {
+      const input = e.target;
+      if (input instanceof HTMLInputElement && input.id === 'song-file' && input.files?.[0]) actions.file(input.files[0]);
     });
   }
 
@@ -364,41 +404,42 @@ export class Screens {
       const st = mp.getState();
       if (!st.isHost) return;
       if (Object.keys(st.players).length < 1) return;
-      mp.startSong(st.songId ?? DEFAULT_SONG_ID);
+      mp.startSong(st.songId ?? this.roomSong);
     } catch { /* ignore */
     }
   }
 
+  /** The built-in song a room starts with when the host hasn't picked one there. */
+  private roomSong = '';
+
   update(m: ScreenModel): void {
+    this.roomSong = songInfo(m.selected.key) ? m.selected.key : (m.songs[0]?.key ?? '');
     const p = m.flow.phase;
+    const songs = `${m.selected.key}|${m.songs.length}|${m.fileStatus.kind}|${m.inRoom}`;
     let key: string;
     if (p.kind === 'warmup') {
       key = `warmup-${p.step}-${p.doneAt !== null}-${p.skipped}`;
     } else if (p.kind === 'lobby') {
       let room = '';
       let players = '';
-      let song = '';
       let host = '0';
       try {
         const st = mp.getState();
         room = st.roomId ?? '';
         players = Object.values(st.players).map((pl) => `${pl.id}:${pl.name}:${pl.isHost}:${pl.status}`).join(',');
-        // Solo (no room) never sets mp.songId, so derive from the title like
-        // lobbyHtml does — otherwise the key never changes and the highlight
-        // freezes after setSong().
-        song = st.songId ?? selectedSong(m.songTitle);
         host = st.isHost ? '1' : '0';
-      } catch {
-        song = selectedSong(m.songTitle);
+      } catch { /* lobby without mp */
       }
       let saved = '';
       try { saved = loadPlayerName() ?? ''; } catch { saved = ''; }
-      key = `lobby-${room}-${players}-${song}-${host}-${saved}-${this.showJoin ? '1' : '0'}`;
+      key = `lobby-${room}-${players}-${songs}-${host}-${saved}-${this.showJoin ? '1' : '0'}`;
     } else if (p.kind === 'results') {
       const pod = sharedPodium;
       key = pod && pod.length >= 2
-        ? `results-podium-${pod.map((e) => `${e.playerId}:${e.score}:${e.stars}:${e.place}`).join(',')}`
-        : 'results';
+        ? `results-podium-${pod.map((e) => `${e.playerId}:${e.score}:${e.stars}:${e.place}`).join(',')}-${songs}`
+        : `results-${songs}`;
+    } else if (p.kind === 'countdown') {
+      key = `countdown-${songs}`;
     } else {
       key = p.kind;
     }
@@ -437,6 +478,8 @@ export class Screens {
       case 'countdown': {
         const el = byId('count');
         const n = String(countdownLeft(m.flow));
+        const text = byId('count-text');
+        if (text && m.flow.t >= COUNTDOWN_S && !m.songReady) text.textContent = 'Готовлю музыку…';
         if (el && el.textContent !== n) {
           el.textContent = n;
           el.classList.remove('pop');
@@ -446,12 +489,9 @@ export class Screens {
         break;
       }
       case 'results': {
-        const el = byId('restart');
-        const left = Math.ceil(RESTART_LOCK_S - m.flow.t);
-        if (el) {
-          el.textContent = left > 0 ? `Можно начать заново через ${left} с` : 'Подними руку над головой, чтобы станцевать ещё раз';
-          el.classList.toggle('ready', left <= 0);
-        }
+        const text = byId('restart-text');
+        if (text) text.textContent = restartText(m);
+        byId('restart')?.classList.toggle('ready', m.flow.t >= RESTART_LOCK_S);
         break;
       }
       case 'intro': case 'error': case 'dancing': case 'lobby': break;
@@ -466,14 +506,14 @@ export class Screens {
     const p = m.flow.phase;
     switch (p.kind) {
       case 'intro': return introHtml(m.demo);
-      case 'lobby': return lobbyHtml(m.songTitle, this.showJoin);
+      case 'lobby': return lobbyHtml(m, this.showJoin);
       case 'loading': return loadingHtml();
       case 'error': return errorHtml(p.message);
       case 'calibrating': return calibHtml();
       case 'warmup': return warmupHtml(p.step, p.doneAt !== null, p.skipped);
-      case 'countdown': return countdownHtml(countdownLeft(m.flow), m.songTitle);
+      case 'countdown': return countdownHtml(countdownLeft(m.flow), m.selected.song.title);
       case 'dancing': return '';
-      case 'results': return m.result ? resultsHtml(m.result) : '';
+      case 'results': return m.result ? resultsHtml(m.result, m) : '';
       default: {
         const _exhaustive: never = p;
         return _exhaustive;

@@ -23,12 +23,10 @@ export function toonRamp(): DataTexture {
   return t;
 }
 
-/** Candy-sky backdrop: lilac to pink to peach, with soft light bubbles. Friendly, never club-dark. */
-export const backdrop = () => canvasTexture(512, 512, (ctx) => {
+/** Candy-sky backdrop in three colours, top to bottom, with soft light bubbles. Friendly, never club-dark. */
+export const backdrop = (stops: readonly string[]) => canvasTexture(512, 512, (ctx) => {
   const g = ctx.createLinearGradient(0, 0, 0, 512);
-  g.addColorStop(0, '#9d99ed');
-  g.addColorStop(0.55, '#ea9dd9');
-  g.addColorStop(1, '#ffc1b5');
+  stops.forEach((c, i) => g.addColorStop(i / (stops.length - 1), c));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, 512, 512);
   let seed = 9;
@@ -44,7 +42,7 @@ export const backdrop = () => canvasTexture(512, 512, (ctx) => {
   }
 });
 
-/** Dance-floor tile: a dark square with a bright rim; tinted per tile. */
+/** Dance-floor tile: a light square with a bright rim; tinted per tile. */
 export const floorTile = () => canvasTexture(128, 128, (ctx) => {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, 128, 128);

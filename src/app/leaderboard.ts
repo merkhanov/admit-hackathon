@@ -32,10 +32,13 @@ export function insertScore(board: readonly ScoreEntry[], entry: ScoreEntry): { 
   return { board: next, place: next.indexOf(entry) };
 }
 
-export function loadLeaderboard(storage: Storage = localStorage): ScoreEntry[] {
-  return parseLeaderboard(storage.getItem(KEY));
+/** Each song keeps its own table. «Neon Steps» keeps the key it had before there were other songs. */
+export const leaderboardKey = (songKey: string): string => (songKey === 'neon' ? KEY : `${KEY}.${songKey}`);
+
+export function loadLeaderboard(songKey: string, storage: Storage = localStorage): ScoreEntry[] {
+  return parseLeaderboard(storage.getItem(leaderboardKey(songKey)));
 }
 
-export function saveLeaderboard(board: readonly ScoreEntry[], storage: Storage = localStorage): void {
-  storage.setItem(KEY, JSON.stringify(board));
+export function saveLeaderboard(board: readonly ScoreEntry[], songKey: string, storage: Storage = localStorage): void {
+  storage.setItem(leaderboardKey(songKey), JSON.stringify(board));
 }

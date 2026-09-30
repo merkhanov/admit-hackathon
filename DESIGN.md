@@ -217,6 +217,14 @@ The error-mode correction, and the most important element on screen.
 - **Pictogram lane:** bottom-right, no frame, fading out towards the right edge. Coloured stick figures with a white halo slide left and reach a translucent 104 px "now" ring on the beat. The current one grows to 112 %.
 - **Camera window:** top-right, a 5 px white border, {rounded.md}, a dark grape inside. Limbs are Mint on target, Sunshine close and Coral off. The target arms appear as a dashed Sunshine ghost.
 
+### Song picker
+- **Song cards:** in the lobby, a grid of Lavender Mist cards at {rounded.md}, two or three across on desktop and one per row on phones. Each card has the song's signature pictogram (44 px, Grape), the title in 900, the credit in Grape and the length and move count in Ink Soft.
+- **Selected card:** white fill, a 3 px Grape border and the Float shadow, with `aria-pressed="true"`. The selected song's dances and coach go in one line under the grid, not on every card.
+- **Guests in a room** see the same cards without buttons: only the host picks.
+- **Own-song picker:** a dashed lavender box under the grid, solo only. It has three states. Idle says which files work and that the file stays on the device. Loading says «Слушаю «…» и ищу ритм…». Error gives the reason with a Coral border.
+- **Song themes:** each song brings its own stage (backdrop, floor, rim lamps) and a hat for the coach: none, cap, papakha, bow, crown or kalpak. Theme colours stay in the candy palette, and every backdrop is light.
+- **Song switch:** on the results screen in solo play, one line above the restart prompt names the previous song on the left and the next one on the right.
+
 ### Motion
 - 180–260 ms state transitions on `cubic-bezier(0.22, 1, 0.36, 1)` (ease-out-quart family).
 - The rating word pops in on ease-out-expo over 900 ms: scale 0.6 → 1, hold, fade up. No bounce, no elastic.

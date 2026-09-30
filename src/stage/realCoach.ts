@@ -3,11 +3,16 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import type { MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
 import { CoachMotion, type CoachView } from './coach.ts';
+import { buildHat } from './hats.ts';
+import type { Hat } from './themes.ts';
 
 const RAD = Math.PI / 180;
 const HEIGHT = 2.25;
 /** Tilts limb directions slightly towards the camera, so elbows bend forward rather than flipping. */
 const TOWARD_CAMERA = 0.12;
+/** Head radius as a share of the head bone's length, and how far up the skull a hat sits. */
+const HEAD_RADIUS = 0.8;
+const HAT_SEAT = 1.08;
 
 interface Chain { arm: Bone; fore: Bone; hand: Bone }
 
@@ -15,11 +20,16 @@ interface Chain { arm: Bone; fore: Bone; hand: Bone }
  * Finds a Mixamo-standard bone such as "RightForeArm". Mixamo files name it "mixamorig:RightForeArm"
  * (GLTFLoader drops the ':'), Ready Player Me files use the bare name; all three are accepted.
  */
-function findBone(root: Object3D, name: string): Bone {
+function tryBone(root: Object3D, name: string): Bone | null {
   let found: Bone | null = null;
   root.traverse((o) => {
     if (!found && o instanceof Bone && (o.name === name || o.name === `mixamorig${name}` || o.name === `mixamorig:${name}`)) found = o;
   });
+  return found;
+}
+
+function findBone(root: Object3D, name: string): Bone {
+  const found = tryBone(root, name);
   if (!found) throw new Error(`Bone ${name} not found`);
   return found;
 }
@@ -51,6 +61,10 @@ export class RealCoach implements CoachView {
   private readonly rest = new Map<Bone, Quaternion>();
   private readonly model: Object3D;
   private readonly baseY: number;
+  private readonly head: Bone;
+  /** Top of the skull in the head bone's space. */
+  private readonly headTop: Vector3;
+  private hat: Group | null = null;
 
   /** Loads a model once per URL; each URL is used by one dancer, so no skeleton cloning is needed. */
   static async load(url: string, options: RealCoachOptions = {}): Promise<RealCoach> {
@@ -95,11 +109,26 @@ export class RealCoach implements CoachView {
     this.spine = findBone(model, 'Spine');
     this.hips = findBone(model, 'Hips');
     this.neck = findBone(model, 'Neck');
+    this.head = findBone(model, 'Head');
+    // Some rigs end the skull without a HeadTop_End bone: then a hat sits one head-bone length up.
+    this.headTop = tryBone(model, 'HeadTop_End')?.position.clone() ?? new Vector3(0, 0.1, 0);
     this.upLeg = { L: findBone(model, 'RightUpLeg'), R: findBone(model, 'LeftUpLeg') };
     this.leg = { L: findBone(model, 'RightLeg'), R: findBone(model, 'LeftLeg') };
     for (const b of [this.arms.L.arm, this.arms.L.fore, this.arms.R.arm, this.arms.R.fore, this.spine, this.hips, this.neck, this.upLeg.L, this.upLeg.R, this.leg.L, this.leg.R]) {
       this.rest.set(b, b.quaternion.clone());
     }
+  }
+
+  setHat(hat: Hat): void {
+    if (this.hat) this.head.remove(this.hat);
+    this.hat = buildHat(hat);
+    if (!this.hat) return;
+    // The head bone runs from the base of the skull to its top: the head's radius is about half of that.
+    const radius = this.headTop.length() * HEAD_RADIUS;
+    this.hat.scale.multiplyScalar(radius);
+    this.hat.position.multiplyScalar(radius);
+    this.hat.position.add(this.headTop.clone().multiplyScalar(HAT_SEAT));
+    this.head.add(this.hat);
   }
 
   update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void {

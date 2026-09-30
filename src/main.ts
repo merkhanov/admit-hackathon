@@ -2,18 +2,20 @@ import './style.css';
 import { cameraFailed, cameraReady, enterIntro, enterLobby, initFlow, startRequested, stepFlow, WARMUP, WARMUP_PASS, type Flow, type FlowCommand } from './app/flow.ts';
 import { insertScore, loadLeaderboard, saveLeaderboard, type ScoreEntry } from './app/leaderboard.ts';
 import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from './app/summary.ts';
-import { renderSong, SongPlayer } from './audio/music.ts';
+import { Tracks, type Track } from './app/tracks.ts';
+import { SongPlayer } from './audio/music.ts';
 import { Sfx } from './audio/sfx.ts';
 import { newDance, stars, stepDance, type DanceState, type Verdict } from './dance/dance.ts';
 import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
 import { MOVES, type MoveTarget } from './dance/moves.ts';
-import { beatLength, songDuration, stepAt, type Song } from './dance/song.ts';
-import { DEFAULT_SONG_ID, SONGS, SONG_META, type SongId } from './dance/songs.ts';
+import { beatLength, songDuration, stepAt } from './dance/song.ts';
+import { DEFAULT_SONG, songInfo, type SongId } from './dance/songs.ts';
 import { CameraError, downloadProgress, preloadRecognition, startCamera, type PoseSource } from './pose/camera.ts';
 import { startDemoSource } from './pose/demoSource.ts';
 import { calibration, initTracker, recalibrate, stepTracker, type TrackerEvent, type TrackerOutput } from './pose/tracker.ts';
 import { FlatStage } from './stage/flatStage.ts';
 import { Stage, type CrewMember, type StageView } from './stage/stage.ts';
+import { themeFor } from './stage/themes.ts';
 import { Hud, type Banner } from './ui/hud.ts';
 import { Scoreboard } from './ui/scoreboard.ts';
 import { MPManager } from './multiplayer/manager.ts';
@@ -23,7 +25,7 @@ import { loadPlayerName, makePlayerId } from './multiplayer/persistence.ts';
 import { PeerJSTransport } from './multiplayer/peerjs.ts';
 import { WebRTCTransport } from './multiplayer/webrtc.ts';
 import { PoseView } from './ui/pip.ts';
-import { Screens, type RoundResult } from './ui/screens.ts';
+import { Screens, type RoundResult, type SongCard } from './ui/screens.ts';
 
 /** How long a move's verdict and its correction stay on screen. */
 const VERDICT_S = 1.8;
@@ -78,41 +80,48 @@ const stage = createStage(canvas('scene'));
 const poseView = new PoseView(canvas('pose'));
 const hud = new Hud();
 const scoreboard = new Scoreboard();
-const screens = new Screens(screensRoot, () => void start(), () => void toMenu());
+
+const tracks = new Tracks();
+let shownTheme = '';
+/** Switches the song, and the stage and costume with it. */
+function selectSong(change: () => void): void {
+  change();
+  const theme = tracks.current.theme;
+  if (theme !== shownTheme) {
+    shownTheme = theme;
+    stage.setTheme(themeFor(theme));
+  }
+}
+const inRoom = () => mp.getState().roomId !== null;
+
+/**
+ * Picks a built-in song for this round (lobby picker or the room host's choice) and starts rendering its music.
+ * An unknown id, say from a newer build, falls back to the default song.
+ */
+export function setSong(id: SongId): void {
+  selectSong(() => tracks.select(songInfo(id) ? id : DEFAULT_SONG.song.id));
+}
+
+const screens = new Screens(screensRoot, {
+  start: () => void start(),
+  menu: () => void toMenu(),
+  pick: (key) => {
+    const k = flow.phase.kind;
+    if (k !== 'intro' && k !== 'lobby' && k !== 'error') return;
+    if (!inRoom()) { selectSong(() => tracks.select(key)); return; }
+    // In a room only the host picks, and only songs every device can render.
+    if (!mp.amHost() || !songInfo(key)) return;
+    setSong(key);
+    mp.selectSong(key);
+  },
+  file: (file) => void tracks.loadFile(file).then(() => selectSong(() => undefined)),
+});
 
 // Start the ~17 MB model download and the music render right away, while the player reads the intro.
 if (!demo) preloadRecognition().catch(() => undefined);
-
-/** The song for the current round. Changed from the lobby song selector or a multiplayer `songSelect`. */
-let currentSongId: SongId = DEFAULT_SONG_ID;
-const currentSong = (): Song => SONGS[currentSongId];
-/** Rendered audio per song, filled on demand. Only played songs consume memory. */
-const songBuffers = new Map<SongId, AudioBuffer>();
-let songBuffer: AudioBuffer | null = null;
-
-function ensureSongBuffer(id: SongId): Promise<AudioBuffer> {
-  const cached = songBuffers.get(id);
-  if (cached) return Promise.resolve(cached);
-  return renderSong(SONGS[id]).then(
-    (b) => {
-      songBuffers.set(id, b);
-      return b;
-    },
-    (err: unknown) => {
-      console.error('Song render failed', err);
-      throw err;
-    },
-  );
-}
-
-// Without the buffer the song clock still runs, silently; the error must at least be visible.
-ensureSongBuffer(currentSongId).then((b) => { songBuffer = b; }, () => undefined);
-
-/** Switch the round's song (lobby selector or multiplayer host). Pre-renders its audio. */
-export function setSong(id: SongId): void {
-  currentSongId = id;
-  ensureSongBuffer(id).then((b) => { songBuffer = b; }, () => undefined);
-}
+selectSong(() => tracks.select(tracks.current.key));
+/** The song being danced: fixed from the countdown to the results, whatever the picker shows. */
+let playing: Track = tracks.current;
 
 let flow: Flow = initFlow();
 let tracker = initTracker();
@@ -150,6 +159,8 @@ function crewMembers(now: number): CrewMember[] {
 
 // Multiplayer reactions: song start from host, shared podium, room reset.
 mp.onEvent((ev) => {
+  // Guests render the host's pick as soon as it changes, so the countdown doesn't wait for the music.
+  if (ev.kind === 'songChanged') setSong(ev.songId);
   if (ev.kind === 'songStarted') {
     setSong(ev.songId);
     sharedPodium = null;
@@ -171,9 +182,8 @@ function currentTarget(): MoveTarget | null {
   const p = flow.phase;
   if (p.kind === 'warmup') return MOVES[WARMUP[p.step].move];
   if (p.kind !== 'dancing') return null;
-  const song = currentSong();
-  const i = stepAt(song, songTime());
-  return i >= 0 ? MOVES[song.steps[i].move] : null;
+  const i = stepAt(playing.song, songTime());
+  return i >= 0 ? MOVES[playing.song.steps[i].move] : null;
 }
 
 async function start(): Promise<void> {
@@ -224,11 +234,19 @@ function runCommands(commands: readonly FlowCommand[]): void {
       case 'stepSkipped': sfx.play('hint'); break;
       case 'tick': sfx.play('tick'); break;
       case 'startSong':
+        playing = tracks.current;
         dance = newDance();
         mistakes = {};
         verdict = null;
-        player?.play(songBuffer);
+        player?.play(tracks.buffer(), playing.play);
         sfx.play('go');
+        break;
+      case 'nextSong':
+      case 'prevSong':
+        // In a room the host picks the song in the lobby; leaning does nothing.
+        if (inRoom()) break;
+        selectSong(() => tracks.step(c === 'nextSong' ? 1 : -1));
+        sfx.play('tick');
         break;
       case 'finish':
         finishRound();
@@ -247,11 +265,12 @@ export let sharedPodium: import('./multiplayer/types.ts').PodiumEntry[] | null =
 function finishRound(): void {
   player?.stop();
   const d = dance ?? newDance();
+  const song = playing.song;
   // Multiplayer: share the result; the host aggregates into a shared podium.
   if (mp.getState().roomId) {
     const parts = partAccuracy(d);
     const overall = parts.length > 0 ? Math.round(parts.reduce((s, p) => s + p.pct, 0) / parts.length) : 0;
-    mp.sendResult(d.points, stars(d.points, currentSong()), overall);
+    mp.sendResult(d.points, stars(d.points, song), overall);
     if (mp.amHost()) {
       // Give guests a moment to report, then publish. Late results still show locally.
       setTimeout(() => {
@@ -259,18 +278,19 @@ function finishRound(): void {
       }, 4000);
     }
   }
-  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, currentSong()), at: new Date().toISOString() };
+  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, song), at: new Date().toISOString() };
   let board: ScoreEntry[] = [entry];
   let place = 0;
   try {
-    const r = insertScore(loadLeaderboard(), entry);
+    const r = insertScore(loadLeaderboard(playing.key), entry);
     board = r.board;
     place = r.place;
-    saveLeaderboard(board);
+    saveLeaderboard(board, playing.key);
   } catch {
     // Storage can be unavailable (private mode). The result still shows.
   }
   result = {
+    songTitle: song.title,
     points: d.points, stars: entry.stars, counts: d.counts, maxCombo: d.maxCombo,
     accuracy: partAccuracy(d), advice: adviceLines(mistakes), place, board, entry,
   };
@@ -326,19 +346,21 @@ function frame(now: number, dt: number): void {
     events,
     dt,
     poseScore: liveMatch?.score ?? null,
-    songOver: flow.phase.kind === 'dancing' && t >= songDuration(currentSong()),
+    songOver: flow.phase.kind === 'dancing' && t >= songDuration(playing.song),
+    tilt: lastOut?.features.present ? lastOut.features.tilt : null,
+    songReady: tracks.buffer() !== null,
   });
   flow = step.flow;
   runCommands(step.commands);
 
   if (flow.phase.kind === 'dancing' && dance) {
-    const r = stepDance(dance, currentSong(), songTime(), body);
+    const r = stepDance(dance, playing.song, songTime(), body);
     dance = r.state;
     for (const v of r.verdicts) {
       verdict = { v, until: clock + VERDICT_S };
       mistakes = logVerdict(mistakes, v);
       hud.showVerdict(v.rating);
-      stage.react(v.rating, SONG_META[currentSongId].palette);
+      stage.react(v.rating);
       sfx.play(v.rating);
     }
     // Multiplayer: broadcast live score about once a second.
@@ -355,7 +377,7 @@ function frame(now: number, dt: number): void {
 
   const kind = flow.phase.kind;
   const dancing = kind === 'dancing';
-  const song = currentSong();
+  const song = playing.song;
   const coachIndex = dancing ? stepAt(song, songTime() + COACH_LEAD_S) : -1;
   const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[song.steps[coachIndex].move] : null;
   // Other players dance as avatars beside the coach on wide screens; phones keep the stage clear.
@@ -386,9 +408,19 @@ function frame(now: number, dt: number): void {
     calibProgress: calib && calib.kind === 'calib' ? calib.progress : 0,
     loadProgress: downloadProgress(),
     result,
-    songTitle: song.title,
     demo,
+    inRoom: inRoom(),
+    songs: tracks.list.map(card),
+    selected: card(tracks.current),
+    prev: card(tracks.neighbour(-1)),
+    next: card(tracks.neighbour(1)),
+    fileStatus: tracks.status,
+    songReady: tracks.buffer() !== null,
   });
+}
+
+function card(t: Track): SongCard {
+  return { key: t.key, song: t.song, credit: t.credit, dances: t.dances, coach: t.coach, warning: t.warning };
 }
 
 let prev = performance.now();

@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { newDance, rate, stars, stepDance, maxPoints, type Verdict } from '../src/dance/dance.ts';
 import { bodyAngles, evaluate } from '../src/dance/judge.ts';
 import { MOVE_IDS, MOVES, type MoveId } from '../src/dance/moves.ts';
-import { INPUT_LAG_S, SONG, songDuration, stepAt } from '../src/dance/song.ts';
+import { INPUT_LAG_S, songDuration, stepAt, type Song } from '../src/dance/song.ts';
+import { customSong, danceTempo, SONGS } from '../src/dance/songs.ts';
 import { paramsFor } from '../src/dance/targetPose.ts';
 import { features } from '../src/pose/features.ts';
 import { NEUTRAL, SYNTH_ASPECT, seededRandom, synthPose, type SynthParams } from '../src/pose/synthetic.ts';
@@ -100,14 +101,17 @@ describe('corrections', () => {
   });
 });
 
+const SONG = SONGS[0].song;
+
 /** Plays the whole song with a dancer that performs each move `lag` seconds after the coach. */
-function playSong({ lag, errorOn, noise = 0 }: { lag: number; errorOn?: MoveId; noise?: number }) {
+function playSong({ lag, errorOn, noise = 0, song: SONG_ = SONG }: { lag: number; errorOn?: MoveId; noise?: number; song?: Song }) {
+  const SONG = SONG_;
   const random = seededRandom(5);
   let state = newDance();
   const verdicts: Verdict[] = [];
   for (let t = 0; t <= songDuration(SONG) + 1; t += 1 / 30) {
     const i = stepAt(SONG, t - lag);
-    const move = i >= 0 ? SONG.steps[i].move : null;
+    const move: MoveId | null = i >= 0 ? SONG.steps[i].move : null;
     const params = move ? paramsFor(MOVES[move], move === errorOn ? { L: -50 } : {}) : {};
     const r = stepDance(state, SONG, t, bodyFor(params, noise, random));
     state = r.state;
@@ -115,6 +119,58 @@ function playSong({ lag, errorOn, noise = 0 }: { lag: number; errorOn?: MoveId; 
   }
   return { state, verdicts };
 }
+
+describe('songs', () => {
+  it.each(SONGS.map((s) => [s.song.title, s.song] as const))('«%s»: a dancer on the beat gets Perfect on every move', (_, song) => {
+    const { state, verdicts } = playSong({ lag: INPUT_LAG_S, song });
+    expect(verdicts).toHaveLength(song.steps.length);
+    expect(state.counts.perfect).toBe(song.steps.length);
+  });
+
+  it('every built-in song lasts about a minute and has its own id', () => {
+    for (const { song } of SONGS) {
+      expect(songDuration(song)).toBeGreaterThan(50);
+      expect(songDuration(song)).toBeLessThan(80);
+    }
+    expect(new Set(SONGS.map((s) => s.song.id)).size).toBe(SONGS.length);
+  });
+
+  it('every move is used by some song', () => {
+    const used = new Set(SONGS.flatMap((s) => s.song.steps.map((st) => st.move)));
+    expect(MOVE_IDS.filter((id) => !used.has(id))).toEqual([]);
+  });
+});
+
+describe('a dance for your own song', () => {
+  it('counts half-time and double-time tempos in a comfortable range', () => {
+    expect(danceTempo(70)).toBe(140);
+    expect(danceTempo(170)).toBe(85);
+    expect(danceTempo(128)).toBe(128);
+  });
+
+  it('fits the song, keeps about a move a second, and is the same for the same song', () => {
+    for (const bpm of [84, 100, 128, 150]) {
+      const song = customSong('Моя песня', bpm, 75);
+      expect(songDuration(song)).toBeLessThanOrEqual(75);
+      const moveS = (song.steps[0].beats * 60) / song.bpm;
+      expect(moveS).toBeGreaterThanOrEqual(0.9);
+      expect(moveS).toBeLessThanOrEqual(1.7);
+      expect(song.steps.length % 4).toBe(0);
+    }
+    expect(customSong('A', 120, 60).steps).toEqual(customSong('A', 120, 60).steps);
+    expect(customSong('A', 120, 60).steps).not.toEqual(customSong('B', 120, 60).steps);
+  });
+
+  it('stops at the length limit for a long song', () => {
+    expect(songDuration(customSong('Long', 120, 600))).toBeLessThanOrEqual(90);
+  });
+
+  it('a dancer on the beat gets Perfect on every generated move', () => {
+    const song = customSong('Проверка', 117, 70);
+    const { state } = playSong({ lag: INPUT_LAG_S, song });
+    expect(state.counts.perfect).toBe(song.steps.length);
+  });
+});
 
 describe('timing', () => {
   it('a dancer exactly on the beat, seen through the input lag, gets Perfect on every move', () => {

@@ -1,4 +1,4 @@
-import type { MoveTarget } from '../dance/moves.ts';
+import { drawBend, type MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
 
 const RAD = Math.PI / 180;
@@ -26,8 +26,8 @@ export function figureSegments(move: MoveTarget): { segs: Seg[]; head: { x: numb
   for (const s of ['L', 'R'] as const satisfies readonly Side[]) {
     const sign = s === 'L' ? -1 : 1;
     const sx = 32 + sign * 6, sy = neckY + 2;
-    const { dir, elbow } = move.arms[s];
-    const bend = 180 - elbow;
+    const { dir } = move.arms[s];
+    const bend = drawBend(move.arms[s]);
     const upper = (dir - bend / 2) * RAD, fore = (dir + bend / 2) * RAD;
     const ex = sx + sign * Math.sin(upper) * 9, ey = sy + Math.cos(upper) * 9;
     segs.push({ x1: sx, y1: sy, x2: ex, y2: ey });

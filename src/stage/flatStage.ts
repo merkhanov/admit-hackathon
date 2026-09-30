@@ -1,12 +1,14 @@
 import type { Rating } from '../dance/dance.ts';
 import { figureSegments } from '../ui/pictogram.ts';
 import type { StageFrame, StageView } from './stage.ts';
+import { THEMES, type StageTheme } from './themes.ts';
 
 /** 2D fallback when WebGL is unavailable: the coach as a big glowing stick figure. */
 export class FlatStage implements StageView {
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private flash = 0;
+  private theme: StageTheme = THEMES.neon;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -27,6 +29,10 @@ export class FlatStage implements StageView {
 
   preloadCrew(): void {}
 
+  setTheme(theme: StageTheme): void {
+    this.theme = theme;
+  }
+
   react(rating: Rating): void {
     if (rating === 'perfect') this.flash = 1;
   }
@@ -35,9 +41,7 @@ export class FlatStage implements StageView {
     const { ctx, canvas } = this;
     const w = canvas.width, h = canvas.height;
     const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, '#9d99ed');
-    g.addColorStop(0.55, '#ea9dd9');
-    g.addColorStop(1, '#ffc1b5');
+    this.theme.backdrop.forEach((c, i) => g.addColorStop(i / 2, c));
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, w, h);
     this.flash = Math.max(0, this.flash - dt * 2);
@@ -59,7 +63,7 @@ export class FlatStage implements StageView {
         if (i === legCount) { ctx.translate(32, hipY); ctx.rotate((-tilt * Math.PI) / 180); ctx.translate(-32, -hipY); }
         ctx.beginPath(); ctx.moveTo(s.x1, s.y1); ctx.lineTo(s.x2, s.y2); ctx.stroke();
       });
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = '#2b1d4f';
       ctx.beginPath(); ctx.arc(head.x, head.y, 5, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }

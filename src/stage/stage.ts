@@ -9,11 +9,9 @@ import type { MoveTarget } from '../dance/moves.ts';
 import { Coach, type CoachView, type Outfit } from './coach.ts';
 import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
-import { paletteFor } from './vfx.ts';
+import { THEMES, type StageTheme } from './themes.ts';
 
 const FLOOR_COLS = 11, FLOOR_ROWS = 9, TILE = 1.1;
-// Candy tiles from DESIGN.md: bubblegum, sky, sunshine, lilac, mint.
-const FLOOR_PALETTE = [0xfe8dc5, 0x8cd1fa, 0xffda4b, 0xb48cf0, 0x56f3c1];
 const MAX_CONFETTI = 260;
 
 interface Confetti { pos: Vector3; vel: Vector3; spin: Vector3; life: number; color: Color }
@@ -56,8 +54,10 @@ export interface StageView {
   /** Starts loading the avatar models ahead of the song. */
   preloadCrew(): void;
   resize(): void;
-  react(rating: Rating, paletteKey?: string): void;
+  react(rating: Rating): void;
   draw(frame: StageFrame, dt: number): void;
+  /** Colours and the coach's costume for a song. */
+  setTheme(theme: StageTheme): void;
 }
 
 /** A neon dance stage with the coach. Visual only: no game rules here. */
@@ -81,6 +81,9 @@ export class Stage implements StageView {
   private readonly crewModels: (RealCoach | null)[] = CREW_MODELS.map(() => null);
   private crewLoading = false;
   private readonly tagLayer: HTMLDivElement;
+  private theme: StageTheme = THEMES.neon;
+  private readonly wall: Mesh<PlaneGeometry, MeshBasicMaterial>;
+  private readonly rims: PointLight[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     // Throws without WebGL; main.ts shows the flat fallback coach instead.
@@ -91,7 +94,7 @@ export class Stage implements StageView {
     this.renderer.toneMappingExposure = 1.05;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = PCFShadowMap;
-    this.scene.background = new Color(0xb48cf0);
+    this.scene.background = new Color(this.theme.background);
     const pmrem = new PMREMGenerator(this.renderer);
     this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
     this.scene.environmentIntensity = 0.55;
@@ -113,15 +116,16 @@ export class Stage implements StageView {
     key.shadow.radius = 4;
     this.scene.add(key);
     // Coloured rim lights from behind, like stage lamps.
-    for (const [x, color] of [[-2.5, 0xff2fb3], [2.5, 0x22d3ee]] as const) {
-      const rim = new PointLight(color, 18, 9, 1.6);
+    for (const x of [-2.5, 2.5]) {
+      const rim = new PointLight(0xffffff, 18, 9, 1.6);
       rim.position.set(x, 3.2, -1.6);
+      this.rims.push(rim);
       this.scene.add(rim);
     }
 
-    const wall = new Mesh(new PlaneGeometry(26, 14), new MeshBasicMaterial({ map: backdrop(), toneMapped: false }));
-    wall.position.set(0, 5, -5);
-    this.scene.add(wall);
+    this.wall = new Mesh(new PlaneGeometry(26, 14), new MeshBasicMaterial({ map: backdrop(this.theme.backdrop), toneMapped: false }));
+    this.wall.position.set(0, 5, -5);
+    this.scene.add(this.wall);
 
     const tile = floorTile();
     this.floor = new InstancedMesh(
@@ -136,7 +140,6 @@ export class Stage implements StageView {
         this.dummy.position.set((c - (FLOOR_COLS - 1) / 2) * TILE, -0.05, 4.8 - r * TILE);
         this.dummy.updateMatrix();
         this.floor.setMatrixAt(i, this.dummy.matrix);
-        this.floor.setColorAt(i, this.color.set(FLOOR_PALETTE[(r + c) % FLOOR_PALETTE.length]));
         i++;
       }
     }
@@ -156,11 +159,13 @@ export class Stage implements StageView {
 
     // The cartoon coach dances until the rigged human arrives, and stays if the model can't load.
     this.coach = new Coach(ramp);
+    this.coach.setHat(this.theme.hat);
     this.coach.group.traverse((o) => { if (o instanceof Mesh) o.castShadow = true; });
     this.scene.add(this.coach.group);
     RealCoach.load(`${import.meta.env.BASE_URL}models/michelle.glb`).then(
       (real) => {
         this.scene.remove(this.coach.group);
+        real.setHat(this.theme.hat);
         this.coach = real;
         this.scene.add(real.group);
       },
@@ -172,8 +177,33 @@ export class Stage implements StageView {
     this.confettiMesh.frustumCulled = false;
     this.scene.add(this.confettiMesh);
 
+    this.setTheme(this.theme);
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  setTheme(theme: StageTheme): void {
+    const old = this.wall.material.map;
+    this.theme = theme;
+    this.scene.background = new Color(theme.background);
+    this.wall.material.map = backdrop(theme.backdrop);
+    this.wall.material.needsUpdate = true;
+    if (old) old.dispose();
+    this.rims.forEach((rim, i) => rim.color.set(theme.rims[i]));
+    this.beams.forEach((b, i) => {
+      if (b.material instanceof MeshBasicMaterial) b.material.color.set(theme.floor[i % theme.floor.length]);
+    });
+    this.paintFloor(0);
+    this.coach.setHat(theme.hat);
+  }
+
+  private paintFloor(shift: number): void {
+    const palette = this.theme.floor;
+    for (let i = 0; i < FLOOR_COLS * FLOOR_ROWS; i++) {
+      const r = Math.floor(i / FLOOR_COLS), c = i % FLOOR_COLS;
+      this.floor.setColorAt(i, this.color.set(palette[(r + c + shift) % palette.length]));
+    }
+    if (this.floor.instanceColor) this.floor.instanceColor.needsUpdate = true;
   }
 
   resize(): void {
@@ -244,10 +274,10 @@ export class Stage implements StageView {
   }
 
   /** Celebrates good moves with confetti and shakes a little on a miss. */
-  react(rating: Rating, paletteKey?: string): void {
-    const palette = paletteFor(paletteKey ?? 'steps');
-    if (rating === 'perfect') this.burst(46, [palette.primary, palette.secondary, palette.accent]);
-    else if (rating === 'good') this.burst(18, [palette.primary, palette.secondary]);
+  react(rating: Rating): void {
+    // Confetti in the song's floor colours.
+    if (rating === 'perfect') this.burst(46, this.theme.floor);
+    else if (rating === 'good') this.burst(18, this.theme.floor.slice(0, 2));
     else if (rating === 'miss') this.shake = 0.08;
   }
 
@@ -260,11 +290,7 @@ export class Stage implements StageView {
     if (frame.playing && beatIndex !== this.lastBeat) {
       this.lastBeat = beatIndex;
       // Shift the floor colours one step on every beat.
-      for (let i = 0; i < FLOOR_COLS * FLOOR_ROWS; i++) {
-        const r = Math.floor(i / FLOOR_COLS), c = i % FLOOR_COLS;
-        this.floor.setColorAt(i, this.color.set(FLOOR_PALETTE[(r + c + beatIndex) % FLOOR_PALETTE.length]));
-      }
-      if (this.floor.instanceColor) this.floor.instanceColor.needsUpdate = true;
+      this.paintFloor(beatIndex);
     }
     const pulse = frame.playing ? 1 - phase : 0.4;
     const t = performance.now() / 1000;
@@ -296,7 +322,7 @@ export class Stage implements StageView {
     }
   }
 
-  private burst(count: number, colors: string[]): void {
+  private burst(count: number, colors: readonly number[]): void {
     for (let i = 0; i < count && this.confetti.length < MAX_CONFETTI; i++) {
       this.confetti.push({
         pos: new Vector3((Math.random() - 0.5) * 1.2, 2.4 + Math.random() * 0.6, 0.4),
