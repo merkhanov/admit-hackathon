@@ -8,6 +8,8 @@ export type Phase =
   | { kind: 'error'; message: string }
   | { kind: 'calibrating' }
   | { kind: 'warmup'; step: number; held: number; doneAt: number | null; skipped: boolean }
+  /** In a room: calibrated, waiting for the other players to calibrate too. */
+  | { kind: 'waiting' }
   | { kind: 'countdown' }
   | { kind: 'dancing' }
   | { kind: 'results'; lean: LeanSwitch };
@@ -25,7 +27,7 @@ export interface Flow {
   seenWarmup: boolean;
 }
 
-export type FlowCommand = 'recalibrate' | 'stepDone' | 'stepSkipped' | 'tick' | 'startSong' | 'finish' | 'beginCalibration' | 'nextSong' | 'prevSong';
+export type FlowCommand = 'recalibrate' | 'ready' | 'stepDone' | 'stepSkipped' | 'tick' | 'startSong' | 'finish' | 'beginCalibration' | 'nextSong' | 'prevSong';
 
 export interface WarmupStep {
   move: MoveId;
@@ -48,6 +50,8 @@ export const STEP_PAUSE_S = 1.0;
 export const STEP_TIMEOUT_S = 15;
 export const STEP_WARN_S = 8;
 export const COUNTDOWN_S = 3;
+/** A room waits this long for a player stuck in calibration, then counts down without them. */
+export const WAIT_TIMEOUT_S = 60;
 /** The results screen ignores gestures this long, so the last dance move doesn't restart the song. */
 export const RESTART_LOCK_S = 3;
 /**
@@ -84,6 +88,8 @@ export interface FlowInput {
   command?: FlowCommand;
   /** Shoulder tilt in degrees, positive = leaning to the player's own left. Null when nobody is visible. */
   tilt?: number | null;
+  /** In a room: every other player has calibrated too. The countdown waits for them. Defaults to true. */
+  othersReady?: boolean;
   /** The song's music is ready to play. The countdown waits for it. Defaults to true. */
   songReady?: boolean;
 }
@@ -108,6 +114,11 @@ export function stepFlow(flow: Flow, input: FlowInput, command?: FlowCommand): {
   const f: Flow = { ...flow, t: flow.t + input.dt };
   const p = f.phase;
   const done = (next: Flow) => ({ flow: next, commands });
+  /** Calibrated and warmed up: tell the room, and count down once the others are there too. */
+  const ready = (next: Flow) => {
+    commands.push('ready');
+    return done(enter(next, { kind: input.othersReady === false ? 'waiting' : 'countdown' }));
+  };
 
   switch (p.kind) {
     case 'intro':
@@ -124,7 +135,7 @@ export function stepFlow(flow: Flow, input: FlowInput, command?: FlowCommand): {
     }
     case 'calibrating':
       if (!input.events.includes('calibrated')) return done(f);
-      return done(f.seenWarmup ? enter(f, { kind: 'countdown' }) : enter(f, warmupStep(0)));
+      return f.seenWarmup ? ready(f) : done(enter(f, warmupStep(0)));
     case 'warmup': {
       if (p.doneAt === null) {
         const held = (input.poseScore ?? 0) >= WARMUP_PASS ? p.held + input.dt : 0;
@@ -140,8 +151,11 @@ export function stepFlow(flow: Flow, input: FlowInput, command?: FlowCommand): {
       }
       if (f.t - p.doneAt < STEP_PAUSE_S) return done(f);
       if (p.step + 1 < WARMUP.length) return done(enter(f, warmupStep(p.step + 1)));
-      return done(enter({ ...f, seenWarmup: true }, { kind: 'countdown' }));
+      return ready({ ...f, seenWarmup: true });
     }
+    case 'waiting':
+      if (input.othersReady === false && f.t < WAIT_TIMEOUT_S) return done(f);
+      return done(enter(f, { kind: 'countdown' }));
     case 'countdown':
       if (f.t >= COUNTDOWN_S && input.songReady === false) return done({ ...f, t: COUNTDOWN_S });
       if (f.t >= COUNTDOWN_S) {

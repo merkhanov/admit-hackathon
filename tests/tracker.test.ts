@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { NEUTRAL, SYNTH_ASPECT, seededRandom, synthPose, type SynthParams } from '../src/pose/synthetic.ts';
+import { armsFitLimit, distanceProblem } from '../src/pose/gestures.ts';
+import type { Features } from '../src/pose/features.ts';
 import { calibration, initTracker, recalibrate, stepTracker, type Hint, type TrackerEvent, type TrackerState } from '../src/pose/tracker.ts';
 
 const FRAME_MS = 33;
@@ -147,5 +149,19 @@ describe('camera jitter', () => {
     const p = new Player(NOISE, 3).calibrated().hold({}, 3000);
     expect(p.events).toEqual([]);
     expect(p.seenFixes).toEqual([]);
+  });
+});
+
+describe('distance during calibration', () => {
+  const at = (sw: number) => ({ present: true, sw, aspect: SYNTH_ASPECT }) as unknown as Features;
+
+  it('asks to step back when spread arms would leave the frame', () => {
+    expect(distanceProblem(at(armsFitLimit(SYNTH_ASPECT) + 0.01))).toBe('close');
+    expect(distanceProblem(at(0.85))).toBe('close');
+  });
+
+  it('asks to come closer when the body is tiny, and is quiet in between', () => {
+    expect(distanceProblem(at(0.05))).toBe('far');
+    expect(distanceProblem(at(Math.min(0.2, armsFitLimit(SYNTH_ASPECT) - 0.01)))).toBeNull();
   });
 });

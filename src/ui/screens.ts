@@ -46,6 +46,8 @@ export interface ScreenModel {
   /** This device is in a multiplayer room: the host picks the song, song files and leaning are off. */
   inRoom: boolean;
   calibProgress: number;
+  /** During calibration: the player is too close ('close') or too far ('far') for it to work. */
+  distance: 'close' | 'far' | null;
   /** Download share of the recognition model, 0..1. */
   loadProgress: number;
   result: RoundResult | null;
@@ -120,7 +122,7 @@ function fileHtml(status: FileStatus): string {
     </label>`;
 }
 
-function lobbyHtml(m: ScreenModel, showJoin: boolean): string {
+function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string {
   let saved: string | null = null;
   try { saved = loadPlayerName(); } catch { saved = null; }
   let roomId: string | null = null;
@@ -136,13 +138,13 @@ function lobbyHtml(m: ScreenModel, showJoin: boolean): string {
   const count = players.length;
   const full = count >= 4;
 
-  const nameBlock = saved
-    ? `<p class="muted">Вы: <strong>${esc(saved)}</strong></p>`
+  const nameBlock = saved && !editName
+    ? `<p class="muted">Вы: <strong>${esc(saved)}</strong> <button id="lobby-edit-name" class="link-btn" type="button">Изменить</button></p>`
     : `<div class="lobby-name">
         <label for="lobby-name-input">Ваше имя</label>
-        <input id="lobby-name-input" type="text" maxlength="24" placeholder="Введите имя" autocomplete="off" />
+        <input id="lobby-name-input" type="text" maxlength="24" placeholder="Введите имя" autocomplete="off" value="${esc(saved ?? '')}" />
         <button id="lobby-save-name" class="cta" type="button">Сохранить</button>
-        <p class="muted">Имя сохраняется на этом устройстве.</p>
+        <p class="muted">Имя сохраняется на этом устройстве${roomId ? ' и сразу видно всем в комнате' : ''}.</p>
       </div>`;
 
   const roomBlock = roomId
@@ -253,15 +255,47 @@ const errorHtml = (message: string) => `
     <button id="error-menu" class="link-btn" type="button">В главное меню</button>
   </section>`;
 
-const calibHtml = () => `
+const STEP_BACK = {
+  close: { title: 'Отойди назад', text: 'Ты слишком близко к камере: сделай шаг-другой назад, чтобы разведённые в стороны руки поместились в кадр.' },
+  far: { title: 'Подойди ближе', text: 'Ты слишком далеко от камеры: подойди на шаг ближе.' },
+} as const;
+
+const calibHtml = (distance: ScreenModel['distance']) => `
   <section class="screen side">
     <div class="panel">
       <p class="chip">Калибровка</p>
-      <h2>Встань ровно и опусти руки</h2>
-      <p class="muted">Я запомню твою обычную позу. От неё считаются присед и наклоны.</p>
+      ${distance
+        ? `<div class="step-back" role="alert">
+            <span class="step-back-arrow" aria-hidden="true">${distance === 'close' ? '↓' : '↑'}</span>
+            <h2>${STEP_BACK[distance].title}</h2>
+            <p>${STEP_BACK[distance].text}</p>
+          </div>`
+        : `<h2>Встань ровно и опусти руки</h2>
+      <p class="muted">Я запомню твою обычную позу. От неё считаются присед и наклоны.</p>`}
       <div class="ring" id="calib-ring" style="--p:0"><span id="calib-pct">0%</span></div>
     </div>
   </section>`;
+
+function waitingHtml(): string {
+  let players: { id: string; name: string; ready: boolean; done: boolean }[] = [];
+  let self = '';
+  try {
+    self = mp.self;
+    players = Object.values(mp.getState().players).map((p) => ({ id: p.id, name: p.name, ready: p.ready, done: p.status === 'done' }));
+  } catch { /* no room */
+  }
+  return `
+  <section class="screen side">
+    <div class="panel">
+      <p class="chip">Готово</p>
+      <h2>Ждём остальных</h2>
+      <p class="muted">Танец начнётся, когда все игроки пройдут калибровку.</p>
+      <ul class="lobby-players">
+        ${players.map((p) => `<li><span>${esc(p.name)}${p.id === self ? ' (вы)' : ''}</span><em>${p.ready || p.done ? 'готов' : 'калибруется…'}</em></li>`).join('')}
+      </ul>
+    </div>
+  </section>`;
+}
 
 function warmupHtml(step: number, done: boolean, skipped: boolean): string {
   const s = WARMUP[step];
@@ -341,6 +375,7 @@ export class Screens {
   private readonly root: HTMLElement;
   private key = '';
   private showJoin = false;
+  private editName = false;
 
   constructor(root: HTMLElement, actions: ScreenActions) {
     this.root = root;
@@ -352,6 +387,7 @@ export class Screens {
       if (id === 'start-btn' || id === 'retry-btn') { actions.start(); return; }
       if (id === 'results-menu' || id === 'lobby-menu' || id === 'loading-cancel' || id === 'error-menu') { actions.menu(); return; }
       if (id === 'lobby-save-name') { this.saveName(); return; }
+      if (id === 'lobby-edit-name') { this.editName = true; return; }
       if (id === 'lobby-create') { this.createRoom(); return; }
       if (id === 'lobby-join-toggle') { this.showJoin = true; return; }
       if (id === 'lobby-join') { this.joinRoom(); return; }
@@ -373,6 +409,7 @@ export class Screens {
     if (!val) return;
     try { savePlayerName(val); } catch { /* storage unavailable */
     }
+    this.editName = false;
     try { mp.setName(val); } catch { /* ignore */
     }
   }
@@ -432,12 +469,19 @@ export class Screens {
       }
       let saved = '';
       try { saved = loadPlayerName() ?? ''; } catch { saved = ''; }
-      key = `lobby-${room}-${players}-${songs}-${host}-${saved}-${this.showJoin ? '1' : '0'}`;
+      key = `lobby-${room}-${players}-${songs}-${host}-${saved}-${this.showJoin ? '1' : '0'}-${this.editName ? '1' : '0'}`;
     } else if (p.kind === 'results') {
       const pod = sharedPodium;
       key = pod && pod.length >= 2
         ? `results-podium-${pod.map((e) => `${e.playerId}:${e.score}:${e.stars}:${e.place}`).join(',')}-${songs}`
         : `results-${songs}`;
+    } else if (p.kind === 'calibrating') {
+      key = `calibrating-${m.distance ?? ''}`;
+    } else if (p.kind === 'waiting') {
+      let players = '';
+      try { players = Object.values(mp.getState().players).map((pl) => `${pl.id}:${pl.name}:${pl.ready}:${pl.status}`).join(','); } catch { /* no room */
+      }
+      key = `waiting-${players}`;
     } else if (p.kind === 'countdown') {
       key = `countdown-${songs}`;
     } else {
@@ -445,7 +489,18 @@ export class Screens {
     }
     if (key !== this.key) {
       this.key = key;
+      // A lobby update (someone joins, renames) mustn't wipe what the player is typing.
+      const typed = ['lobby-name-input', 'lobby-join-code'].map((id) => {
+        const el = document.getElementById(id);
+        return el instanceof HTMLInputElement ? { id, value: el.value, focused: document.activeElement === el } : null;
+      });
       this.root.innerHTML = this.html(m);
+      for (const t of typed) {
+        const el = t && document.getElementById(t.id);
+        if (!t || !(el instanceof HTMLInputElement)) continue;
+        el.value = t.value;
+        if (t.focused) el.focus();
+      }
     }
     const byId = (id: string) => document.getElementById(id);
     switch (p.kind) {
@@ -494,7 +549,7 @@ export class Screens {
         byId('restart')?.classList.toggle('ready', m.flow.t >= RESTART_LOCK_S);
         break;
       }
-      case 'intro': case 'error': case 'dancing': case 'lobby': break;
+      case 'intro': case 'error': case 'dancing': case 'lobby': case 'waiting': break;
       default: {
         const _exhaustive: never = p;
         void _exhaustive;
@@ -506,10 +561,11 @@ export class Screens {
     const p = m.flow.phase;
     switch (p.kind) {
       case 'intro': return introHtml(m.demo);
-      case 'lobby': return lobbyHtml(m, this.showJoin);
+      case 'lobby': return lobbyHtml(m, this.showJoin, this.editName);
       case 'loading': return loadingHtml();
       case 'error': return errorHtml(p.message);
-      case 'calibrating': return calibHtml();
+      case 'calibrating': return calibHtml(m.distance);
+      case 'waiting': return waitingHtml();
       case 'warmup': return warmupHtml(p.step, p.doneAt !== null, p.skipped);
       case 'countdown': return countdownHtml(countdownLeft(m.flow), m.selected.song.title);
       case 'dancing': return '';

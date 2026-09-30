@@ -11,7 +11,7 @@ export const emptyState = (): MultiplayerState => ({
 });
 
 const player = (id: string, name: string, isHost: boolean): MPPlayer => ({
-  id, name, isHost, status: 'lobby', score: 0, combo: 0, stars: 0, accuracy: 0, finishedAt: null,
+  id, name, isHost, status: 'lobby', score: 0, combo: 0, stars: 0, accuracy: 0, finishedAt: null, ready: false,
 });
 
 /** Sort podium by score desc, then accuracy desc, then name. */
@@ -53,6 +53,20 @@ export function stepSession(state: MultiplayerState, msg: MPMessage): { state: M
       }
       return { state: { ...state, players }, events };
     }
+    case 'rename': {
+      const p = players[msg.playerId];
+      const name = msg.name.trim().slice(0, 24);
+      if (!p || !name || p.name === name) return { state, events };
+      players[msg.playerId] = { ...p, name };
+      return { state: { ...state, players }, events };
+    }
+    case 'ready': {
+      const p = players[msg.playerId];
+      if (!p || p.ready) return { state, events };
+      players[msg.playerId] = { ...p, ready: true };
+      events.push({ kind: 'playerReady', playerId: msg.playerId });
+      return { state: { ...state, players }, events };
+    }
     case 'host': {
       if (!players[msg.playerId]) return { state, events };
       const next: Record<string, MPPlayer> = {};
@@ -64,7 +78,8 @@ export function stepSession(state: MultiplayerState, msg: MPMessage): { state: M
       // Host broadcasts full player list. Receiver replaces its roster and
       // sets host by id. Used when a guest joins an existing room.
       const next: Record<string, MPPlayer> = {};
-      for (const p of msg.players) next[p.id] = { ...p, isHost: p.id === msg.hostId };
+      // `ready` defaults for rosters from builds that didn't send it.
+      for (const p of msg.players) next[p.id] = { ...p, ready: p.ready ?? false, isHost: p.id === msg.hostId };
       return { state: { ...state, players: next }, events };
     }
     case 'songSelect': {
@@ -74,7 +89,7 @@ export function stepSession(state: MultiplayerState, msg: MPMessage): { state: M
     case 'songStart': {
       events.push({ kind: 'songStarted', songId: msg.songId, startedAt: msg.startedAt });
       const next: Record<string, MPPlayer> = {};
-      for (const [id, p] of Object.entries(players)) next[id] = { ...p, status: 'dancing', score: 0, combo: 0 };
+      for (const [id, p] of Object.entries(players)) next[id] = { ...p, status: 'dancing', score: 0, combo: 0, ready: false };
       return { state: { ...state, players: next, songId: msg.songId, phase: 'dancing' }, events };
     }
     case 'liveScore': {
@@ -103,7 +118,7 @@ export function stepSession(state: MultiplayerState, msg: MPMessage): { state: M
     case 'reset': {
       events.push({ kind: 'reset' });
       const next: Record<string, MPPlayer> = {};
-      for (const [id, p] of Object.entries(players)) next[id] = { ...p, status: 'lobby', score: 0, combo: 0, stars: 0, accuracy: 0, finishedAt: null };
+      for (const [id, p] of Object.entries(players)) next[id] = { ...p, status: 'lobby', score: 0, combo: 0, stars: 0, accuracy: 0, finishedAt: null, ready: false };
       return { state: { ...state, players: next, phase: 'lobby' }, events };
     }
     default: {
@@ -121,4 +136,9 @@ export function buildPodium(state: MultiplayerState): PodiumEntry[] {
     entries.push({ playerId: p.id, name: p.name, score: p.score, stars: p.stars, accuracy: p.accuracy, place: 0 });
   }
   return rankPodium(entries).map((e, i) => ({ ...e, place: i + 1 }));
+}
+
+/** Everyone else in the room has calibrated for this song (or already finished it), so the countdown can start. */
+export function othersReady(state: MultiplayerState, selfId: string): boolean {
+  return Object.values(state.players).every((p) => p.id === selfId || p.ready || p.status === 'done');
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildPodium, emptyState, MAX_PLAYERS, rankPodium, stepSession } from '../src/multiplayer/session.ts';
+import { buildPodium, emptyState, MAX_PLAYERS, othersReady, rankPodium, stepSession } from '../src/multiplayer/session.ts';
 import type { PodiumEntry } from '../src/multiplayer/types.ts';
 
 const join = (id: string, name: string) => ({ type: 'join' as const, player: { id, name } });
@@ -97,5 +97,57 @@ describe('podium', () => {
     expect(podium[0].playerId).toBe('b');
     expect(podium[0].place).toBe(1);
     expect(podium[1].place).toBe(2);
+  });
+});
+
+describe('nicknames in a room', () => {
+  it('a rename reaches the roster', () => {
+    let s = emptyState();
+    s = stepSession(s, join('a', 'Игрок')).state;
+    s = stepSession(s, { type: 'rename', playerId: 'a', name: '  Алиса  ' }).state;
+    expect(s.players.a.name).toBe('Алиса');
+  });
+
+  it('ignores empty names and unknown players', () => {
+    let s = stepSession(emptyState(), join('a', 'Alice')).state;
+    s = stepSession(s, { type: 'rename', playerId: 'a', name: '   ' }).state;
+    expect(s.players.a.name).toBe('Alice');
+    const same = stepSession(s, { type: 'rename', playerId: 'zz', name: 'Bob' }).state;
+    expect(same).toBe(s);
+  });
+});
+
+describe('waiting for everyone to calibrate', () => {
+  const room = () => {
+    let s = emptyState();
+    s = stepSession(s, join('a', 'Alice')).state;
+    s = stepSession(s, join('b', 'Bob')).state;
+    return stepSession(s, { type: 'songStart', songId: 'neon', startedAt: 0 }).state;
+  };
+
+  it('counts down only once every other player is ready', () => {
+    let s = room();
+    expect(othersReady(s, 'a')).toBe(false);
+    s = stepSession(s, { type: 'ready', playerId: 'a' }).state;
+    expect(othersReady(s, 'a')).toBe(false);
+    expect(othersReady(s, 'b')).toBe(true);
+    s = stepSession(s, { type: 'ready', playerId: 'b' }).state;
+    expect(othersReady(s, 'a')).toBe(true);
+  });
+
+  it('a new song clears everyone\'s readiness', () => {
+    let s = room();
+    s = stepSession(s, { type: 'ready', playerId: 'b' }).state;
+    s = stepSession(s, { type: 'reset' }).state;
+    expect(s.players.b.ready).toBe(false);
+    s = stepSession(s, { type: 'ready', playerId: 'b' }).state;
+    s = stepSession(s, { type: 'songStart', songId: 'neon', startedAt: 1 }).state;
+    expect(othersReady(s, 'a')).toBe(false);
+  });
+
+  it('a player who left no longer holds the room', () => {
+    let s = room();
+    s = stepSession(s, { type: 'leave', playerId: 'b' }).state;
+    expect(othersReady(s, 'a')).toBe(true);
   });
 });

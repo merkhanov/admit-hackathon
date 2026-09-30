@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cameraReady, COUNTDOWN_S, enterIntro, initFlow, LEAN_SWITCH_S, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, STEP_TIMEOUT_S,
-  WARMUP, WARMUP_HOLD_S, type Flow, type FlowCommand, type FlowInput,
+  WAIT_TIMEOUT_S, WARMUP, WARMUP_HOLD_S, type Flow, type FlowCommand, type FlowInput,
 } from '../src/app/flow.ts';
 import { insertScore, leaderboardKey, parseLeaderboard } from '../src/app/leaderboard.ts';
 import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from '../src/app/summary.ts';
@@ -159,6 +159,32 @@ describe('countdown', () => {
     expect(waiting.flow.phase.kind).toBe('countdown');
     const ready = stepFlow(waiting.flow, { events: [], dt: DT, poseScore: null, songOver: false, songReady: true });
     expect(ready.commands).toEqual(['startSong']);
+  });
+});
+
+describe('waiting for the room', () => {
+  const calibratedAgain = (othersReady: boolean) => {
+    const f: Flow = { phase: { kind: 'calibrating' }, t: 0, seenWarmup: true };
+    return stepFlow(f, { events: ['calibrated'], dt: DT, poseScore: null, songOver: false, othersReady });
+  };
+
+  it('tells the room it is ready and waits for the others', () => {
+    const r = calibratedAgain(false);
+    expect(r.commands).toEqual(['ready']);
+    expect(r.flow.phase.kind).toBe('waiting');
+    expect(run(r.flow, 5, { othersReady: false }).flow.phase.kind).toBe('waiting');
+    expect(run(r.flow, DT, { othersReady: true }).flow.phase.kind).toBe('countdown');
+  });
+
+  it('goes straight to the countdown when everyone is already there', () => {
+    const r = calibratedAgain(true);
+    expect(r.commands).toEqual(['ready']);
+    expect(r.flow.phase.kind).toBe('countdown');
+  });
+
+  it('does not wait forever for a player stuck in calibration', () => {
+    const r = run(calibratedAgain(false).flow, WAIT_TIMEOUT_S + DT, { othersReady: false });
+    expect(r.flow.phase.kind).toBe('countdown');
   });
 });
 

@@ -12,6 +12,7 @@ import { beatLength, songDuration, stepAt } from './dance/song.ts';
 import { DEFAULT_SONG, songInfo, type SongId } from './dance/songs.ts';
 import { CameraError, downloadProgress, preloadRecognition, startCamera, type PoseSource } from './pose/camera.ts';
 import { startDemoSource } from './pose/demoSource.ts';
+import { distanceProblem } from './pose/gestures.ts';
 import { calibration, initTracker, recalibrate, stepTracker, type TrackerEvent, type TrackerOutput } from './pose/tracker.ts';
 import { FlatStage } from './stage/flatStage.ts';
 import { Stage, type CrewMember, type StageView } from './stage/stage.ts';
@@ -19,6 +20,7 @@ import { themeFor } from './stage/themes.ts';
 import { Hud, type Banner } from './ui/hud.ts';
 import { Scoreboard } from './ui/scoreboard.ts';
 import { MPManager } from './multiplayer/manager.ts';
+import { othersReady } from './multiplayer/session.ts';
 import { packPose, unpackPose } from './multiplayer/pose.ts';
 import type { CompactPose } from './multiplayer/types.ts';
 import { loadPlayerName, makePlayerId } from './multiplayer/persistence.ts';
@@ -230,6 +232,7 @@ function runCommands(commands: readonly FlowCommand[]): void {
       case 'beginCalibration':
         tracker = recalibrate(tracker);
         break;
+      case 'ready': mp.sendReady(); break;
       case 'stepDone': sfx.play('step'); break;
       case 'stepSkipped': sfx.play('hint'); break;
       case 'tick': sfx.play('tick'); break;
@@ -359,6 +362,7 @@ function frame(now: number, dt: number): void {
     songOver: flow.phase.kind === 'dancing' && t >= songDuration(playing.song),
     tilt: lastOut?.features.present ? lastOut.features.tilt : null,
     songReady: tracks.buffer() !== null,
+    othersReady: inRoom() ? othersReady(mp.getState(), mp.self) : undefined,
   });
   flow = step.flow;
   runCommands(step.commands);
@@ -416,6 +420,7 @@ function frame(now: number, dt: number): void {
   screens.update({
     flow,
     calibProgress: calib && calib.kind === 'calib' ? calib.progress : 0,
+    distance: kind === 'calibrating' && lastOut ? distanceProblem(lastOut.features) : null,
     loadProgress: downloadProgress(),
     result,
     demo,

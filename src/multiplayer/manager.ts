@@ -60,8 +60,16 @@ export class MPManager {
     this.poseCbs.push(cb);
   }
 
+  /** Changes our nickname; in a room the new name reaches every peer's roster. */
   setName(name: string): void {
     this.name = name;
+    if (this.state.roomId) this.dispatch({ type: 'rename', playerId: this.selfId, name });
+  }
+
+  /** We calibrated for the current song and wait for the others before the countdown. */
+  sendReady(): void {
+    if (!this.state.roomId) return;
+    this.dispatch({ type: 'ready', playerId: this.selfId });
   }
 
   connect(roomId: string, wantsHost: boolean): void {

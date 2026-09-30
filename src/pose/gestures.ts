@@ -63,6 +63,17 @@ export const GESTURE_IDS: readonly GestureId[] = ['jump'];
 export const armsFitLimit = (aspect: number): number => aspect / 2 / (0.5 + ARM_REACH);
 
 /** Returns a concrete framing problem, or null when the upper body is usable. */
+/**
+ * Whether the player stands at a distance calibration can't use: 'close' when the shoulders are so
+ * wide that arms spread to the sides would leave the frame, 'far' when they are too small to read.
+ */
+export function distanceProblem(f: Features): 'close' | 'far' | null {
+  if (!f.present) return null;
+  if (f.sw > 0.8 || f.sw > armsFitLimit(f.aspect)) return 'close';
+  if (f.sw < 0.08) return 'far';
+  return null;
+}
+
 export function framingProblem(f: Features): string | null {
   if (!f.present) return 'Не вижу тебя: встань перед камерой';
   if (f.vis < 0.5) return 'Не видно головы и плеч: отодвинься или наклони камеру, чтобы верх тела попал в кадр';

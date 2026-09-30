@@ -214,6 +214,28 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 }
 .panel-done { box-shadow: 0 0 0 6px var(--mint), var(--shadow-card); }
 .panel-skipped { box-shadow: 0 0 0 6px var(--tangerine), var(--shadow-card); }
+/* Calibration can't start from this distance: a loud "step back" card inside the panel. */
+.step-back {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: var(--coral);
+  color: var(--ink);
+  text-align: center;
+}
+.step-back h2 { margin: 0; }
+.step-back p { margin: 0; }
+.step-back-arrow {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 900;
+  animation: step-back-nudge 900ms var(--ease-out) infinite alternate;
+}
+@keyframes step-back-nudge { to { transform: translateY(6px); } }
+@media (prefers-reduced-motion: reduce) { .step-back-arrow { animation: none; } }
 .tutorial-icon {
   width: 132px;
   height: 132px;

@@ -22,6 +22,8 @@ export interface MPPlayer {
   accuracy: number;
   /** When the player finished, epoch ms. */
   finishedAt: number | null;
+  /** Calibrated and warmed up for the current song: the room counts down once everyone is. */
+  ready: boolean;
 }
 
 export type MPPhase = 'idle' | 'lobby' | 'dancing' | 'podium';
@@ -39,6 +41,9 @@ export interface MultiplayerState {
 export type MPMessage =
   | { type: 'join'; player: { id: string; name: string } }
   | { type: 'leave'; playerId: string }
+  | { type: 'rename'; playerId: string; name: string }
+  /** The player finished calibration (and the warm-up) and waits for the others. */
+  | { type: 'ready'; playerId: string }
   | { type: 'host'; playerId: string }
   | { type: 'sync'; hostId: string; players: MPPlayer[] }
   | { type: 'songSelect'; songId: SongId }
@@ -64,6 +69,7 @@ export type MPEvent =
   | { kind: 'playerJoined'; player: MPPlayer }
   | { kind: 'playerLeft'; playerId: string }
   | { kind: 'hostChanged'; playerId: string }
+  | { kind: 'playerReady'; playerId: string }
   | { kind: 'songChanged'; songId: SongId }
   | { kind: 'songStarted'; songId: SongId; startedAt: number }
   | { kind: 'scoreUpdated'; playerId: string; score: number; combo: number }
