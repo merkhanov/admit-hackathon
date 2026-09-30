@@ -114,6 +114,9 @@ export class RealCoach implements CoachView {
   private readonly rightHip: Bone;
   /** Where the hips stand at rest, in the group's space: the recorded dance is kept on this spot. */
   private readonly hipsHome: Vector3;
+  /** Foot and toe bones, and how high the lowest of them stands at rest: that height is the floor. */
+  private readonly feet: Bone[];
+  private readonly footFloor: number;
 
   /** Downloads a model once per URL. Every dancer gets its own copy of the skeleton. */
   static async load(url: string, options: RealCoachOptions = {}): Promise<RealCoach> {
@@ -176,6 +179,8 @@ export class RealCoach implements CoachView {
     model.traverse((o) => { if (o instanceof Bone) this.bind.set(o, { q: o.quaternion.clone(), p: o.position.clone() }); });
     model.updateMatrixWorld(true);
     this.hipsHome = this.group.worldToLocal(this.hips.getWorldPosition(new Vector3()));
+    this.feet = ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase'].map((n) => tryBone(model, n)).filter((b): b is Bone => b !== null);
+    this.footFloor = Math.min(...this.feet.map((f) => this.group.worldToLocal(f.getWorldPosition(new Vector3())).y));
     if (clip) {
       this.mixer = new AnimationMixer(model);
       this.mixer.clipAction(clip).play();
@@ -208,25 +213,31 @@ export class RealCoach implements CoachView {
     for (const [b, q] of this.rest) b.quaternion.copy(q);
 
     const bounce = Math.abs(Math.sin(Math.PI * beatPhase));
+    // Weight shift: one side-to-side swing every two beats. Waiting with nothing to show (calibration,
+    // the lobby) she grooves bigger, stepping from foot to foot, so she never stands rooted.
+    const idle = target === null;
+    const sway = Math.sin((beatIndex + beatPhase) * Math.PI);
     // Sway the model inside the group: the group position belongs to the stage (avatar slots).
-    this.model.position.x = Math.sin((beatIndex + beatPhase) * Math.PI) * 0.05;
-    this.model.position.y = this.baseY - p.squat * 0.45 - (1 - bounce) * 0.04;
+    this.model.position.set(sway * (idle ? 0.09 : 0.05), this.baseY, 0);
     this.model.updateMatrixWorld(true);
 
-    // Knees: thighs forward, shins back, so a squat folds the legs instead of sinking the feet.
-    const knee = p.squat * 1.1 + (1 - bounce) * 0.08;
+    // Knees: thighs forward, shins back, so a squat folds the legs. Both give a little on every beat,
+    // and the leg that carries no weight bends more, as when a person shifts from foot to foot.
+    const give = (1 - bounce) * (idle ? 0.16 : 0.08);
     for (const s of ['L', 'R'] as const) {
+      // Target side L is on screen-left (-x): when the hips swing right, the left leg is the free one.
+      const free = Math.max(0, s === 'L' ? sway : -sway) * (idle ? 0.35 : 0.15);
+      const knee = p.squat * 1.1 + give + free;
       rotateWorld(this.upLeg[s], new Vector3(1, 0, 0), -knee);
       rotateWorld(this.leg[s], new Vector3(1, 0, 0), knee * 1.9);
     }
-    // Weight shift: the hips swing to one side per beat and the spine counters it, like a real groove.
-    const sway = Math.sin((beatIndex + beatPhase) * Math.PI);
-    rotateWorld(this.hips, new Vector3(0, 0, 1), sway * 0.07);
-    rotateWorld(this.hips, new Vector3(0, 1, 0), sway * 0.1);
-    // Lean: positive tilt tips the torso towards screen-left.
-    rotateWorld(this.spine, new Vector3(0, 0, 1), p.tilt * RAD - sway * 0.06);
-    // A small nod on every beat.
-    rotateWorld(this.neck, new Vector3(1, 0, 0), (1 - bounce) * 0.12);
+    rotateWorld(this.hips, new Vector3(0, 0, 1), sway * (idle ? 0.1 : 0.07));
+    rotateWorld(this.hips, new Vector3(0, 1, 0), sway * (idle ? 0.16 : 0.1));
+    // Lean: positive tilt tips the torso towards screen-left; the spine counters the hips.
+    rotateWorld(this.spine, new Vector3(0, 0, 1), p.tilt * RAD - sway * (idle ? 0.1 : 0.06));
+    // A nod on every beat, and the head tips with the sway while she waits.
+    rotateWorld(this.neck, new Vector3(1, 0, 0), (1 - bounce) * (idle ? 0.16 : 0.12));
+    if (idle) rotateWorld(this.neck, new Vector3(0, 0, 1), sway * 0.08);
 
     for (const s of ['L', 'R'] as const) {
       const sign = s === 'L' ? -1 : 1;
@@ -235,6 +246,20 @@ export class RealCoach implements CoachView {
       pointBone(arm, fore, dirAt(p.dir[s] - p.bend[s] / 2));
       pointBone(fore, hand, dirAt(p.dir[s] + p.bend[s] / 2));
     }
+    this.plantFeet();
+  }
+
+  /**
+   * Moves her up or down so the lower foot stands exactly on the floor, whatever the knees and hips
+   * did: bent legs lower her instead of lifting her feet, and she never floats or sinks.
+   */
+  private plantFeet(): void {
+    this.model.updateMatrixWorld(true);
+    let low = Infinity;
+    for (const f of this.feet) low = Math.min(low, this.group.worldToLocal(f.getWorldPosition(tmpA)).y);
+    if (!Number.isFinite(low)) return;
+    this.model.position.y += this.footFloor - low;
+    this.model.updateMatrixWorld(true);
   }
 
   /**
@@ -255,7 +280,7 @@ export class RealCoach implements CoachView {
     const hips = this.group.worldToLocal(this.hips.getWorldPosition(tmpA));
     this.model.position.x -= hips.x - this.hipsHome.x;
     this.model.position.z -= hips.z - this.hipsHome.z;
-    this.model.updateMatrixWorld(true);
+    this.plantFeet();
   }
 }
 
