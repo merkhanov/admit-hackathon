@@ -13,10 +13,6 @@ export interface Mocap {
   fps: number;
   /** Seconds per beat of the dance as it was captured. */
   beat: number;
-  /** Seconds into the recording of its first beat. */
-  offset?: number;
-  /** False for a dance recorded once, start to finish, such as a video: it plays once instead of repeating. */
-  loop?: boolean;
   /** Per frame: left arm direction, left elbow, right arm direction, right elbow, tilt, squat %. */
   frames: readonly (readonly number[])[];
 }
@@ -37,18 +33,8 @@ function framePose(f: readonly number[]): MoveTarget {
   return { name: '', arms: { L: { dir: f[0], elbow: f[1] }, R: { dir: f[2], elbow: f[3] } }, tilt, squat: depth >= 0.5, depth };
 }
 
-/** How long the recording is, in seconds. */
-export const recordingSeconds = (m: Mocap): number => m.frames.length / m.fps;
-
-/** Whole beats a one-take recording has after its first beat. */
-export const recordedBeats = (m: Mocap): number => Math.floor((recordingSeconds(m) - (m.offset ?? 0)) / m.beat);
-
-/**
- * Where in the recording (seconds) a dance `beats` beats in is. A loop repeats on a whole beat;
- * a one-take recording starts at its first beat and holds its first and last frames outside it.
- */
+/** Where in the recording (seconds) a dance `beats` beats in is; it loops on a whole beat. */
 export function clipSeconds(m: Mocap, beats: number): number {
-  if (m.loop === false) return Math.max(0, Math.min(recordingSeconds(m) - 1 / m.fps, (m.offset ?? 0) + beats * m.beat));
   const loop = loopBeats(m);
   return ((((beats % loop) + loop) % loop) * m.beat);
 }
@@ -58,7 +44,7 @@ export function mocapPose(m: Mocap, seconds: number): MoveTarget {
   const n = m.frames.length;
   const x = seconds * m.fps;
   const i = Math.floor(x);
-  const at = (k: number) => m.frames[m.loop === false ? Math.max(0, Math.min(n - 1, k)) : ((k % n) + n) % n];
+  const at = (k: number) => m.frames[((k % n) + n) % n];
   return blendPose(framePose(at(i)), framePose(at(i + 1)), x - i);
 }
 

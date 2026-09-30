@@ -1,8 +1,5 @@
 import type { MoveId } from './moves.ts';
-import { buildMocapSong, recordedBeats, type Mocap } from './mocap.ts';
-import { DANCE1 } from './mocap/dance1.ts';
-import { DANCE2 } from './mocap/dance2.ts';
-import { DANCE3 } from './mocap/dance3.ts';
+import { buildMocapSong } from './mocap.ts';
 import { SAMBA } from './mocap/samba.ts';
 import { buildSong, type Song } from './song.ts';
 
@@ -106,23 +103,7 @@ export const SONGS: readonly SongInfo[] = [
     dances: 'Настоящая самба: движения всего тела записаны с человека',
     coach: 'Танцовщица',
   },
-  ...[
-    { mocap: DANCE1, title: 'Танцор: улица' },
-    { mocap: DANCE2, title: 'Танцор: студия' },
-    { mocap: DANCE3, title: 'Танцор: коротко' },
-  ].map(({ mocap, title }) => ({
-    song: fromVideo(mocap, title),
-    credit: 'Своя музыка в темпе видео · танец снят с живого танцора',
-    dances: 'Настоящий танец нашего танцора, движение в движение, как на видео',
-    coach: 'Наш танцор',
-  })),
 ];
-
-/** A song from a video of a dancer: her whole take, once, two beats per step, at the tempo she danced to. */
-function fromVideo(mocap: Mocap, title: string): Song {
-  const song = buildMocapSong(mocap.id, title, 60 / mocap.beat, mocap, Math.floor(recordedBeats(mocap) / 2), { outroBeats: 4 });
-  return { ...song, video: `dancers/${mocap.id}` };
-}
 
 export const DEFAULT_SONG = SONGS[0];
 

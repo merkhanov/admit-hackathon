@@ -22,8 +22,6 @@ export interface Song {
   steps: Step[];
   /** A dance recorded from a real dancer: the coach performs it and the player is judged on it, beat for beat. */
   mocap?: Mocap;
-  /** A video of the dancer the recording was taken from, under public/ without its extension (.mp4 and .webm): shown instead of the 3D coach. */
-  video?: string;
 }
 
 export interface SongShape {
