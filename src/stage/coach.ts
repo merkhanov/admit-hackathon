@@ -52,6 +52,15 @@ export class CoachMotion {
  * The dancer the player copies. It faces the camera and is built by screen side:
  * the arm on screen-left is target arm "L", which the player mirrors with their own left arm.
  */
+/** Costume colours, so each player's avatar is easy to tell apart. */
+export interface Outfit {
+  top: number;
+  pants: number;
+  hair: number;
+}
+
+const COACH_OUTFIT: Outfit = { top: 0xff3d9a, pants: 0x22d3ee, hair: 0x6b2bd9 };
+
 export class Coach implements CoachView {
   readonly group = new Group();
   private readonly hips = new Group();
@@ -60,9 +69,9 @@ export class Coach implements CoachView {
   private readonly legs: Record<Side, { hip: Group; knee: Group }>;
   private readonly motion = new CoachMotion();
 
-  constructor(ramp: Texture) {
+  constructor(ramp: Texture, outfit: Outfit = COACH_OUTFIT) {
     const mat = (color: number) => new MeshToonMaterial({ color, gradientMap: ramp });
-    const top = mat(0xff3d9a), pants = mat(0x22d3ee), shoes = mat(0xffd21f), skin = mat(0xf2c28b), hair = mat(0x6b2bd9), glove = mat(0xffffff);
+    const top = mat(outfit.top), pants = mat(outfit.pants), shoes = mat(0xffd21f), skin = mat(0xf2c28b), hair = mat(outfit.hair), glove = mat(0xffffff);
     const part = (geo: BufferGeometry, m: MeshToonMaterial, outline = 1.07) => {
       const mesh = new Mesh(geo, m);
       const rim = new Mesh(geo, OUTLINE);

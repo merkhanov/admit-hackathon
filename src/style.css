@@ -583,3 +583,19 @@ p { text-wrap: pretty; }
   .screen { padding: 12px; }
   button { min-height: 44px; }
 }
+
+/* Other players' avatars: a name and live score above each head. */
+.crew-tags { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-fx); }
+.crew-tag {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--white);
+  color: var(--ink);
+  font: 900 0.95rem/1.2 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  box-shadow: var(--shadow-float);
+}

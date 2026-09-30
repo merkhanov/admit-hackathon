@@ -22,6 +22,9 @@ export class FlatStage implements StageView {
     this.canvas.height = window.innerHeight;
   }
 
+  /** The flat fallback shows only the coach. */
+  setCrew(): void {}
+
   react(rating: Rating): void {
     if (rating === 'perfect') this.flash = 1;
   }

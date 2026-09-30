@@ -13,10 +13,12 @@ import { CameraError, downloadProgress, preloadRecognition, startCamera, type Po
 import { startDemoSource } from './pose/demoSource.ts';
 import { calibration, initTracker, recalibrate, stepTracker, type TrackerEvent, type TrackerOutput } from './pose/tracker.ts';
 import { FlatStage } from './stage/flatStage.ts';
-import { Stage, type StageView } from './stage/stage.ts';
+import { Stage, type CrewMember, type StageView } from './stage/stage.ts';
 import { Hud, type Banner } from './ui/hud.ts';
 import { Scoreboard } from './ui/scoreboard.ts';
 import { MPManager } from './multiplayer/manager.ts';
+import { packPose, unpackPose } from './multiplayer/pose.ts';
+import type { CompactPose } from './multiplayer/types.ts';
 import { loadPlayerName, makePlayerId } from './multiplayer/persistence.ts';
 import { PeerJSTransport } from './multiplayer/peerjs.ts';
 import { WebRTCTransport } from './multiplayer/webrtc.ts';
@@ -127,6 +129,24 @@ let clock = 0;
 let warmupMissSince = 0;
 /** Last time we broadcast our live score to the room (ms). */
 let lastLiveScoreAt = 0;
+/** Last time we streamed our pose to the room (ms). */
+let lastPoseAt = 0;
+/** Latest pose of every other player, with the time it arrived. */
+const remotePoses = new Map<string, { pose: CompactPose; at: number }>();
+mp.onPose((playerId, pose) => remotePoses.set(playerId, { pose, at: performance.now() }));
+/** A pose older than this is stale: the avatar grooves in place instead of freezing. */
+const POSE_STALE_MS = 1500;
+/** Screens narrower than this (phones) don't draw the other players' avatars. */
+const CREW_MIN_WIDTH = 900;
+
+function crewMembers(now: number): CrewMember[] {
+  return Object.values(mp.getState().players)
+    .filter((p) => p.id !== mp.self)
+    .map((p) => {
+      const latest = remotePoses.get(p.id);
+      return { id: p.id, name: p.name, score: p.score, pose: latest && now - latest.at < POSE_STALE_MS ? unpackPose(latest.pose) : null };
+    });
+}
 
 // Multiplayer reactions: song start from host, shared podium, room reset.
 mp.onEvent((ev) => {
@@ -326,6 +346,11 @@ function frame(now: number, dt: number): void {
       lastLiveScoreAt = now;
       mp.sendLiveScore(dance.points, dance.combo);
     }
+    // Stream our pose so desktops in the room can draw us dancing.
+    if (mp.getState().roomId && body && now - lastPoseAt >= MPManager.POSE_MS) {
+      lastPoseAt = now;
+      mp.sendPose(packPose(body));
+    }
   }
 
   const kind = flow.phase.kind;
@@ -333,6 +358,9 @@ function frame(now: number, dt: number): void {
   const song = currentSong();
   const coachIndex = dancing ? stepAt(song, songTime() + COACH_LEAD_S) : -1;
   const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[song.steps[coachIndex].move] : null;
+  // Other players dance as avatars beside the coach on wide screens; phones keep the stage clear.
+  const showCrew = dancing && window.innerWidth >= CREW_MIN_WIDTH;
+  stage.setCrew(showCrew ? crewMembers(now) : []);
   stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing }, dt);
 
   // Live multiplayer scoreboard: visible during the dance when ≥2 players share the room.

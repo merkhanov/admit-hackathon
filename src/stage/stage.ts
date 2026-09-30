@@ -1,12 +1,12 @@
 import {
   ACESFilmicToneMapping, AdditiveBlending, BoxGeometry, Color, ConeGeometry, DirectionalLight, DoubleSide, HemisphereLight,
   InstancedMesh, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, PCFShadowMap, PerspectiveCamera, PlaneGeometry,
-  PMREMGenerator, PointLight, Scene, Vector3, WebGLRenderer,
+  PMREMGenerator, PointLight, Scene, Vector3, WebGLRenderer, type Texture,
 } from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import type { Rating } from '../dance/dance.ts';
 import type { MoveTarget } from '../dance/moves.ts';
-import { Coach, type CoachView } from './coach.ts';
+import { Coach, type CoachView, type Outfit } from './coach.ts';
 import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
 import { paletteFor } from './vfx.ts';
@@ -27,8 +27,28 @@ export interface StageFrame {
   playing: boolean;
 }
 
+/** Another player in the room, shown as a small avatar next to the coach. */
+export interface CrewMember {
+  id: string;
+  name: string;
+  score: number;
+  /** Their latest pose, or null when none arrived recently (the avatar grooves in place). */
+  pose: MoveTarget | null;
+}
+
+/** Where avatars stand: beside the coach, a little behind, smaller. Up to three other players. */
+const CREW_SLOTS: readonly { x: number; z: number }[] = [{ x: -2.3, z: -1 }, { x: 2.3, z: -1 }, { x: -3.5, z: -1.8 }];
+const CREW_SCALE = 0.62;
+const CREW_OUTFITS: readonly Outfit[] = [
+  { top: 0x56f3c1, pants: 0x8140d0, hair: 0x271f46 },
+  { top: 0xffda4b, pants: 0x8cd1fa, hair: 0xfe8b85 },
+  { top: 0x8cd1fa, pants: 0xfe8dc5, hair: 0x6529a9 },
+];
+
 /** What main.ts needs from a stage, so the 3D stage and the 2D fallback are interchangeable. */
 export interface StageView {
+  /** Other players to draw as avatars; an empty list hides them. */
+  setCrew(members: readonly CrewMember[]): void;
   resize(): void;
   react(rating: Rating, paletteKey?: string): void;
   draw(frame: StageFrame, dt: number): void;
@@ -48,6 +68,9 @@ export class Stage implements StageView {
   private readonly color = new Color();
   private lastBeat = -1;
   private shake = 0;
+  private readonly ramp: Texture;
+  private readonly crew = new Map<string, { coach: Coach; tag: HTMLDivElement; slot: number; pose: MoveTarget | null }>();
+  private readonly tagLayer: HTMLDivElement;
 
   constructor(canvas: HTMLCanvasElement) {
     // Throws without WebGL; main.ts shows the flat fallback coach instead.
@@ -64,6 +87,10 @@ export class Stage implements StageView {
     this.scene.environmentIntensity = 0.55;
 
     const ramp = toonRamp();
+    this.ramp = ramp;
+    this.tagLayer = document.createElement('div');
+    this.tagLayer.className = 'crew-tags';
+    document.body.append(this.tagLayer);
     this.scene.add(new HemisphereLight(0xfff4ff, 0x9d80d0, 1.2));
     const key = new DirectionalLight(0xffffff, 2.2);
     key.position.set(2.5, 6, 5);
@@ -147,6 +174,36 @@ export class Stage implements StageView {
     this.camera.updateProjectionMatrix();
   }
 
+  setCrew(members: readonly CrewMember[]): void {
+    const keep = new Set(members.slice(0, CREW_SLOTS.length).map((m) => m.id));
+    for (const [id, a] of this.crew) {
+      if (keep.has(id)) continue;
+      this.scene.remove(a.coach.group);
+      a.tag.remove();
+      this.crew.delete(id);
+    }
+    for (const m of members.slice(0, CREW_SLOTS.length)) {
+      let a = this.crew.get(m.id);
+      if (!a) {
+        const used = new Set([...this.crew.values()].map((c) => c.slot));
+        const slot = CREW_SLOTS.findIndex((_, i) => !used.has(i));
+        const coach = new Coach(this.ramp, CREW_OUTFITS[slot % CREW_OUTFITS.length]);
+        coach.group.scale.setScalar(CREW_SCALE);
+        coach.group.position.set(CREW_SLOTS[slot].x, 0, CREW_SLOTS[slot].z);
+        coach.group.traverse((o) => { if (o instanceof Mesh) o.castShadow = true; });
+        this.scene.add(coach.group);
+        const tag = document.createElement('div');
+        tag.className = 'crew-tag';
+        this.tagLayer.append(tag);
+        a = { coach, tag, slot, pose: null };
+        this.crew.set(m.id, a);
+      }
+      a.pose = m.pose;
+      const text = `${m.name} · ${m.score}`;
+      if (a.tag.textContent !== text) a.tag.textContent = text;
+    }
+  }
+
   /** Celebrates good moves with confetti and shakes a little on a miss. */
   react(rating: Rating, paletteKey?: string): void {
     const palette = paletteFor(paletteKey ?? 'steps');
@@ -159,6 +216,7 @@ export class Stage implements StageView {
     const beatIndex = Math.floor(frame.beat);
     const phase = frame.beat - beatIndex;
     this.coach.update(frame.target, frame.playing ? phase : (performance.now() / 600) % 1, frame.playing ? beatIndex : Math.floor(performance.now() / 600), dt);
+    for (const a of this.crew.values()) a.coach.update(a.pose, phase, beatIndex, dt);
 
     if (frame.playing && beatIndex !== this.lastBeat) {
       this.lastBeat = beatIndex;
@@ -184,6 +242,16 @@ export class Stage implements StageView {
 
     this.stepConfetti(dt);
     this.renderer.render(this.scene, this.camera);
+    this.placeTags();
+  }
+
+  /** Pins each avatar's name tag above its head in screen space. */
+  private placeTags(): void {
+    const w = window.innerWidth, h = window.innerHeight;
+    for (const a of this.crew.values()) {
+      const head = new Vector3(0, 2.95, 0).applyMatrix4(a.coach.group.matrixWorld).project(this.camera);
+      a.tag.style.transform = `translate(${((head.x + 1) / 2) * w}px, ${((1 - head.y) / 2) * h}px) translate(-50%, -100%)`;
+    }
   }
 
   private burst(count: number, colors: string[]): void {

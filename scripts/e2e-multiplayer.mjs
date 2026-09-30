@@ -55,6 +55,13 @@ try {
   await host.click('#lobby-start');
   await until('both players score after the host starts', async () => (await score(host)) > 0 && (await score(phone)) > 0, 45);
   console.log('ok  the host started the song and the phone danced');
+
+  // The desktop host sees the phone player dancing as an avatar; the phone keeps its stage clear.
+  const tags = (page) => page.$$eval('.crew-tag', (els) => els.map((e) => e.textContent));
+  await until('the host shows the phone player as an avatar', async () => (await tags(host)).some((t) => t.startsWith('Телефон')), 10);
+  if ((await tags(phone)).length !== 0) throw new Error('the phone should not draw avatars');
+  if (process.env.SHOT) await host.screenshot({ path: process.env.SHOT });
+  console.log(`ok  host shows avatars: ${(await tags(host)).join(', ')}`);
   console.log('PASS');
 } catch (err) {
   console.error(`FAIL: ${err.message}`);
