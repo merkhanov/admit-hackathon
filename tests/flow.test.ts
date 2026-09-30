@@ -3,7 +3,7 @@ import {
   cameraReady, COUNTDOWN_S, enterIntro, initFlow, LEAN_SWITCH_S, RESTART_LOCK_S, startRequested, stepFlow, STEP_PAUSE_S, STEP_TIMEOUT_S,
   WAIT_TIMEOUT_S, WARMUP, WARMUP_HOLD_S, type Flow, type FlowCommand, type FlowInput,
 } from '../src/app/flow.ts';
-import { insertScore, leaderboardKey, parseLeaderboard } from '../src/app/leaderboard.ts';
+import { insertScore, leaderboardKey, loadLeaderboard, parseLeaderboard, recordScore } from '../src/app/leaderboard.ts';
 import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from '../src/app/summary.ts';
 import { newDance } from '../src/dance/dance.ts';
 
@@ -189,6 +189,25 @@ describe('waiting for the room', () => {
 });
 
 describe('records per song', () => {
+  const memory = (): Storage => {
+    const m = new Map<string, string>();
+    return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v), removeItem: (k) => void m.delete(k), clear: () => m.clear(), key: () => null, get length() { return m.size; } };
+  };
+
+  it('keeps who danced, and each song its own table', () => {
+    const st = memory();
+    recordScore('neon', { score: 900, stars: 4, at: '2026-09-30T10:00:00Z', name: 'Алиса' }, st);
+    recordScore('neon', { score: 1200, stars: 5, at: '2026-09-30T10:05:00Z', name: 'Боря' }, st);
+    recordScore('cancan', { score: 300, stars: 1, at: '2026-09-30T10:10:00Z', name: 'Алиса' }, st);
+    expect(loadLeaderboard('neon', st).map((e) => e.name)).toEqual(['Боря', 'Алиса']);
+    expect(loadLeaderboard('cancan', st)).toHaveLength(1);
+  });
+
+  it('old tables without names still load', () => {
+    expect(parseLeaderboard('[{"score":5,"stars":1,"at":"x"}]')).toHaveLength(1);
+    expect(parseLeaderboard('[{"score":5,"stars":1,"at":"x","name":7}]')).toEqual([]);
+  });
+
   it('«Neon Steps» keeps its old key, other songs get their own', () => {
     expect(leaderboardKey('neon')).toBe('motion-dance.leaderboard.v1');
     expect(leaderboardKey('cancan')).toBe('motion-dance.leaderboard.v1.cancan');

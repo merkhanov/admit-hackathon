@@ -52,6 +52,10 @@ export interface ScreenModel {
   loadProgress: number;
   result: RoundResult | null;
   demo: boolean;
+  /** A song's records table on this device, best first. */
+  board(songKey: string): readonly ScoreEntry[];
+  /** Changes whenever any table is saved, so the lobby redraws. */
+  boardsVersion: number;
 }
 
 export interface ScreenActions {
@@ -94,13 +98,24 @@ function signatureMove(song: Song) {
   return MOVES[step.move];
 }
 
-function songCardHtml(c: SongCard, selected: boolean, interactive: boolean): string {
+const recordDate = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+/** One song's top five: score, who, stars and when. */
+function boardHtml(board: readonly ScoreEntry[], mine?: ScoreEntry): string {
+  if (board.length === 0) return '<p class="muted">Рекордов пока нет. Станцуй первым!</p>';
+  return `<ol class="board">
+    ${board.map((e) => `<li class="${e === mine ? 'me' : ''}"><span>${e.score}</span><em>${e.name ? `<b>${esc(e.name)}</b> · ` : ''}${'★'.repeat(Math.max(0, Math.min(5, e.stars)))} · ${recordDate(e.at)}</em></li>`).join('')}
+  </ol>`;
+}
+
+function songCardHtml(c: SongCard, selected: boolean, interactive: boolean, best: ScoreEntry | undefined): string {
   const inner = `
         <span class="song-icon">${pictogramSvg(signatureMove(c.song), { outline: true })}</span>
         <span class="song-text">
           <strong>${esc(c.song.title)}</strong>
           <em>${esc(c.credit)}</em>
           <small>${minutes(songDuration(c.song))} · ${c.song.steps.length} движений</small>
+          ${best ? `<small class="song-best">Рекорд: ${best.score}${best.name ? ` · ${esc(best.name)}` : ''}</small>` : ''}
         </span>`;
   return `
     <li>
@@ -173,9 +188,11 @@ function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string
   const songsBlock = `
     <h3>Песня</h3>
     <p class="muted">${roomId ? (isHost ? 'Выберите песню для всех.' : 'Песню выбирает хост.') : 'Выберите песню.'}</p>
-    <ul class="song-grid">${songs.map((c) => songCardHtml(c, c.key === m.selected.key, interactive)).join('')}</ul>
+    <ul class="song-grid">${songs.map((c) => songCardHtml(c, c.key === m.selected.key, interactive, m.board(c.key)[0])).join('')}</ul>
     <p class="song-about"><b>«${esc(m.selected.song.title)}»:</b> ${esc(m.selected.dances)}. Тренер: ${esc(m.selected.coach.toLowerCase())}.</p>
-    ${m.selected.warning ? `<p class="song-warning">${esc(m.selected.warning)}</p>` : ''}`;
+    ${m.selected.warning ? `<p class="song-warning">${esc(m.selected.warning)}</p>` : ''}
+    <h3>Рекорды «${esc(m.selected.song.title)}»</h3>
+    ${boardHtml(m.board(m.selected.key))}`;
 
   const startBlock = roomId
     ? (isHost
@@ -322,7 +339,6 @@ const countdownHtml = (n: number, title: string) => `
   </section>`;
 
 function resultsHtml(r: RoundResult, m: ScreenModel): string {
-  const date = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
   const ratings: readonly Rating[] = ['perfect', 'good', 'ok', 'miss'];
   return `
   <section class="screen center over">
@@ -347,10 +363,8 @@ function resultsHtml(r: RoundResult, m: ScreenModel): string {
             : '<p class="muted">Ошибок почти не было. Чистый танец!</p>'}
         </div>
         <div>
-          <h3>Рекорды на этом устройстве</h3>
-          <ol class="board">
-            ${r.board.map((e) => `<li class="${e === r.entry ? 'me' : ''}"><span>${e.score}</span><em>${'★'.repeat(e.stars)} · ${date(e.at)}</em></li>`).join('')}
-          </ol>
+          <h3>Рекорды «${esc(r.songTitle)}»</h3>
+          ${boardHtml(r.board, r.entry)}
         </div>
       </div>
       ${podiumHtml()}
@@ -452,7 +466,7 @@ export class Screens {
   update(m: ScreenModel): void {
     this.roomSong = songInfo(m.selected.key) ? m.selected.key : (m.songs[0]?.key ?? '');
     const p = m.flow.phase;
-    const songs = `${m.selected.key}|${m.songs.length}|${m.fileStatus.kind}|${m.inRoom}`;
+    const songs = `${m.selected.key}|${m.songs.length}|${m.fileStatus.kind}|${m.inRoom}|${m.boardsVersion}`;
     let key: string;
     if (p.kind === 'warmup') {
       key = `warmup-${p.step}-${p.doneAt !== null}-${p.skipped}`;

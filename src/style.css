@@ -654,3 +654,6 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   white-space: nowrap;
   box-shadow: var(--shadow-float);
 }
+
+.song-best { color: var(--grape) !important; font-weight: 800; }
+.board li em b { color: var(--ink); }

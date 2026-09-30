@@ -1,6 +1,6 @@
 import './style.css';
 import { cameraFailed, cameraReady, enterIntro, enterLobby, initFlow, startRequested, stepFlow, WARMUP, WARMUP_PASS, type Flow, type FlowCommand } from './app/flow.ts';
-import { insertScore, loadLeaderboard, saveLeaderboard, type ScoreEntry } from './app/leaderboard.ts';
+import { loadLeaderboard, recordScore, type ScoreEntry } from './app/leaderboard.ts';
 import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from './app/summary.ts';
 import { Tracks, type Track } from './app/tracks.ts';
 import { SongPlayer } from './audio/music.ts';
@@ -174,12 +174,38 @@ mp.onEvent((ev) => {
   }
   if (ev.kind === 'podiumReady') {
     sharedPodium = ev.entries;
+    // Everyone's scores from the room join this song's records here too; our own is already in.
+    try {
+      const at = new Date().toISOString();
+      for (const e of ev.entries) {
+        if (e.playerId !== mp.self) recordScore(playing.key, { score: e.score, stars: e.stars, at, name: e.name });
+      }
+      boardsChanged(playing.key);
+    } catch {
+      // Storage unavailable: the podium still shows.
+    }
   }
   if (ev.kind === 'reset') {
     sharedPodium = null;
     if (flow.phase.kind === 'results') flow = enterLobby(flow);
   }
 });
+
+/** Each song's records table, read from storage once and re-read after a save. */
+const boards = new Map<string, ScoreEntry[]>();
+let boardsVersion = 0;
+function boardOf(key: string): ScoreEntry[] {
+  let b = boards.get(key);
+  if (!b) {
+    try { b = loadLeaderboard(key); } catch { b = []; }
+    boards.set(key, b);
+  }
+  return b;
+}
+function boardsChanged(key: string): void {
+  boards.delete(key);
+  boardsVersion++;
+}
 
 const songTime = () => (player && flow.phase.kind === 'dancing' ? player.time() : -1);
 
@@ -285,14 +311,14 @@ function finishRound(): void {
       }, 4000);
     }
   }
-  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, song), at: new Date().toISOString() };
+  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, song), at: new Date().toISOString(), name: loadPlayerName() ?? 'Игрок' };
   let board: ScoreEntry[] = [entry];
   let place = 0;
   try {
-    const r = insertScore(loadLeaderboard(playing.key), entry);
+    const r = recordScore(playing.key, entry);
     board = r.board;
     place = r.place;
-    saveLeaderboard(board, playing.key);
+    boardsChanged(playing.key);
   } catch {
     // Storage can be unavailable (private mode). The result still shows.
   }
@@ -436,6 +462,8 @@ function frame(now: number, dt: number): void {
     next: card(tracks.neighbour(1)),
     fileStatus: tracks.status,
     songReady: tracks.buffer() !== null,
+    board: boardOf,
+    boardsVersion,
   });
 }
 
