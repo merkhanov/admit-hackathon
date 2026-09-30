@@ -8,7 +8,8 @@ import { Sfx } from './audio/sfx.ts';
 import { newDance, stars, stepDance, type DanceState, type Verdict } from './dance/dance.ts';
 import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
 import { MOVES, type MoveTarget } from './dance/moves.ts';
-import { beatLength, songDuration, stepAt } from './dance/song.ts';
+import { poseAt } from './dance/motion.ts';
+import { beatLength, songDuration } from './dance/song.ts';
 import { DEFAULT_SONG, songInfo, type SongId } from './dance/songs.ts';
 import { CameraError, downloadProgress, preloadRecognition, startCamera, type PoseSource } from './pose/camera.ts';
 import { startDemoSource } from './pose/demoSource.ts';
@@ -209,13 +210,12 @@ function boardsChanged(key: string): void {
 
 const songTime = () => (player && flow.phase.kind === 'dancing' ? player.time() : -1);
 
-/** The move the player should be doing right now: the warm-up pose or the song's current step. */
+/** The pose the player should be in right now: the warm-up pose, or the moving choreography of the song. */
 function currentTarget(): MoveTarget | null {
   const p = flow.phase;
   if (p.kind === 'warmup') return MOVES[WARMUP[p.step].move];
   if (p.kind !== 'dancing') return null;
-  const i = stepAt(playing.song, songTime());
-  return i >= 0 ? MOVES[playing.song.steps[i].move] : null;
+  return poseAt(playing.song, songTime());
 }
 
 async function start(): Promise<void> {
@@ -423,8 +423,8 @@ function frame(now: number, dt: number): void {
   const kind = flow.phase.kind;
   const dancing = kind === 'dancing';
   const song = playing.song;
-  const coachIndex = dancing ? stepAt(song, songTime() + COACH_LEAD_S) : -1;
-  const coachTarget = kind === 'warmup' ? target : coachIndex >= 0 ? MOVES[song.steps[coachIndex].move] : null;
+  // The coach dances the choreography continuously, a touch ahead so its easing lands on the beat.
+  const coachTarget = kind === 'warmup' ? target : dancing ? poseAt(song, songTime() + COACH_LEAD_S) : null;
   // Other players dance as avatars beside the coach on wide screens; phones keep the stage clear.
   const wide = window.innerWidth >= CREW_MIN_WIDTH;
   // Fetch the avatar models while the room waits in the lobby, not when the song starts.

@@ -1,6 +1,7 @@
-import { evaluate, type BodyAngles, type MoveEval, type PartId } from './judge.ts';
-import { MOVES, type MoveId } from './moves.ts';
-import { judgeWindow, type Song } from './song.ts';
+import { angleDiff, evaluate, type BodyAngles, type MoveEval, type PartId } from './judge.ts';
+import type { MoveId } from './moves.ts';
+import { poseAt } from './motion.ts';
+import { INPUT_LAG_S, judgeWindow, type Song } from './song.ts';
 
 export type Rating = 'perfect' | 'good' | 'ok' | 'miss';
 
@@ -28,8 +29,13 @@ export interface DanceState {
   /** Index of the step being judged next. */
   index: number;
   best: MoveEval | null;
-  /** The latest frame of the window: where the player settled, which the correction describes. */
-  last: MoveEval | null;
+  /** The frame that matched worst: the mistake the player kept making, which the correction describes. */
+  worst: MoveEval | null;
+  /** Every frame's match in the window: a move is danced through, not struck once. Out of frame is 0. */
+  scores: number[];
+  /** How far the player's body and the coach's travelled during the window. */
+  moved: Travel | null;
+  shown: Travel | null;
   points: number;
   combo: number;
   maxCombo: number;
@@ -39,15 +45,64 @@ export interface DanceState {
   finished: boolean;
 }
 
+/** The range each body channel covered in a window, relative to where it started. */
+interface Travel {
+  ref: number[];
+  lo: number[];
+  hi: number[];
+}
+
 export const newDance = (): DanceState => ({
-  index: 0, best: null, last: null, points: 0, combo: 0, maxCombo: 0,
+  index: 0, best: null, worst: null, scores: [], moved: null, shown: null, points: 0, combo: 0, maxCombo: 0,
   counts: { perfect: 0, good: 0, ok: 0, miss: 0 }, parts: {}, finished: false,
 });
+
+/** A move's score is the average of its frames without the worst share, forgiving a single stumble. */
+export const DROP_WORST = 0.2;
+/** A player who stands still keeps at most this share of the score: dancing means moving. */
+export const STILL_FLOOR = 0.65;
+/** Moving this share of the coach's range already counts as moving with the coach. */
+export const MOVE_ENOUGH = 0.6;
+/** Coach motion smaller than this (summed over channels) doesn't ask the player to move. */
+const MIN_TRAVEL = 20;
+const FULL_SQUAT = 0.35;
+/** Movement is measured from this long after a window opens: after the player arrives in the move. */
+const SETTLE_S = 0.3;
+
+const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+
+/** Arm directions in degrees, elbows and lean weighted so each channel moves about as much in a real dance. */
+function channels(dirL: number, dirR: number, elbowL: number, elbowR: number, tilt: number, depth: number): number[] {
+  return [dirL, dirR, elbowL * 0.5, elbowR * 0.5, tilt * 2, depth * 60];
+}
+
+function travel(t: Travel | null, v: number[]): Travel {
+  if (!t) return { ref: v, lo: v.map(() => 0), hi: v.map(() => 0) };
+  // Arm directions go round the circle, so measure them the short way from where they started.
+  const rel = v.map((x, i) => (i < 2 ? angleDiff(x, t.ref[i]) : x - t.ref[i]));
+  return { ref: t.ref, lo: t.lo.map((l, i) => Math.min(l, rel[i])), hi: t.hi.map((h, i) => Math.max(h, rel[i])) };
+}
+
+const spread = (t: Travel | null) => (t ? t.hi.reduce((sum, h, i) => sum + h - t.lo[i], 0) : 0);
+
+/** 0..1: did the player move as much as the coach did? */
+export function movedEnough(moved: number, shown: number): number {
+  return shown < MIN_TRAVEL ? 1 : clamp01(moved / (MOVE_ENOUGH * shown));
+}
+
+function followScore(scores: readonly number[]): number {
+  if (scores.length === 0) return 0;
+  const kept = [...scores].sort((a, b) => b - a).slice(0, Math.max(1, Math.ceil(scores.length * (1 - DROP_WORST))));
+  return kept.reduce((sum, v) => sum + v, 0) / kept.length;
+}
+
+const STILL_HINT = 'Не замирай в позе: двигайся вместе с тренером на каждый бит';
 
 function finalize(s: DanceState, song: Song): Verdict {
   const step = song.steps[s.index];
   const best = s.best;
-  const score = best?.score ?? 0;
+  const moving = movedEnough(spread(s.moved), spread(s.shown));
+  const score = best ? followScore(s.scores) * (STILL_FLOOR + (1 - STILL_FLOOR) * moving) : 0;
   const rating = rate(score);
   s.points += RATING_POINTS[rating];
   s.counts[rating]++;
@@ -59,21 +114,46 @@ function finalize(s: DanceState, song: Song): Verdict {
       s.parts[p.part] = { sum: acc.sum + p.score, n: acc.n + 1 };
     }
   }
-  // The rating rewards the best moment; the correction describes the pose the player held,
-  // not a frame where the arms happened to sweep through the target.
-  const worst = s.last?.worst ?? best?.worst ?? null;
-  const hint = rating === 'perfect' ? null : worst?.hint ?? 'Не видно тебя в кадре: встань так, чтобы камера видела голову, плечи и руки';
-  const verdict: Verdict = { index: s.index, move: step.move, rating, score, hint, part: rating === 'perfect' ? null : worst?.part ?? null };
+  const worst = s.worst?.worst ?? best?.worst ?? null;
+  const still = best !== null && moving < 0.6;
+  let hint: string | null = null;
+  let part: PartId | null = null;
+  if (rating !== 'perfect') {
+    // Standing still is the thing to fix unless a part was clearly wrong; out of frame comes first.
+    if (!best) hint = 'Не видно тебя в кадре: встань так, чтобы камера видела голову, плечи и руки';
+    else if (still && (!worst || worst.score > 0.3)) hint = STILL_HINT;
+    else { hint = worst?.hint ?? STILL_HINT; part = worst?.part ?? null; }
+  }
+  const verdict: Verdict = { index: s.index, move: step.move, rating, score, hint, part };
   s.index++;
   s.best = null;
-  s.last = null;
+  s.worst = null;
+  s.scores = [];
+  s.moved = null;
+  s.shown = null;
   if (s.index >= song.steps.length) s.finished = true;
   return verdict;
 }
 
+/** A player this much ahead of or behind the coach still counts as on time. */
+export const TIMING_SLACK_S = 0.12;
+
+/** How well the body matches the moving choreography at `time`, forgiving a little early or late. */
+export function followEval(song: Song, time: number, body: BodyAngles): MoveEval | null {
+  let best: MoveEval | null = null;
+  // The player's pose arrives INPUT_LAG_S late, so compare it with what the coach showed then.
+  for (const dt of [-TIMING_SLACK_S, 0, TIMING_SLACK_S]) {
+    const target = poseAt(song, time - INPUT_LAG_S + dt);
+    if (!target) continue;
+    const e = evaluate(target, body);
+    if (!best || e.score > best.score) best = e;
+  }
+  return best;
+}
+
 /**
- * Pure step: feeds one frame at song time `time` (seconds). Each move keeps its best match
- * inside its judging window; when the window closes the move gets a verdict.
+ * Pure step: feeds one frame at song time `time` (seconds). Each frame in a move's judging
+ * window is matched against the moving choreography; when the window closes the move gets a verdict.
  */
 export function stepDance(state: DanceState, song: Song, time: number, body: BodyAngles | null): { state: DanceState; verdicts: Verdict[] } {
   const s: DanceState = structuredClone(state);
@@ -85,10 +165,26 @@ export function stepDance(state: DanceState, song: Song, time: number, body: Bod
       verdicts.push(finalize(s, song));
       continue;
     }
-    if (time >= w.start && body) {
-      const e = evaluate(MOVES[step.move], body);
-      if (!s.best || e.score > s.best.score) s.best = e;
-      s.last = e;
+    if (time < w.start) break;
+    // Movement counts once the move is underway, so snapping from the last move's pose isn't dancing this one.
+    const settled = time >= w.start + SETTLE_S;
+    const target = poseAt(song, time - INPUT_LAG_S);
+    if (target && settled) {
+      s.shown = travel(s.shown, channels(target.arms.L.dir, target.arms.R.dir, target.arms.L.elbow, target.arms.R.elbow, target.tilt, target.depth ?? (target.squat ? 1 : 0)));
+    }
+    const e = body ? followEval(song, time, body) : null;
+    if (!body || !e) {
+      // Out of frame counts as not dancing.
+      s.scores.push(0);
+      break;
+    }
+    if (!s.best || e.score > s.best.score) s.best = e;
+    if (!s.worst || e.score < s.worst.score) s.worst = e;
+    s.scores.push(e.score);
+    const { L, R } = body.arms;
+    // A hidden arm doesn't move as far as we can tell; it just doesn't add travel.
+    if (settled && L.ok && R.ok) {
+      s.moved = travel(s.moved, channels(L.dir, R.dir, L.elbow, R.elbow, body.tilt, clamp01((body.drop ?? 0) / FULL_SQUAT)));
     }
     break;
   }

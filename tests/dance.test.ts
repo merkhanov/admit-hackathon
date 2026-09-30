@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { newDance, rate, stars, stepDance, maxPoints, type Verdict } from '../src/dance/dance.ts';
 import { bodyAngles, evaluate } from '../src/dance/judge.ts';
 import { MOVE_IDS, MOVES, type MoveId } from '../src/dance/moves.ts';
+import { poseAt } from '../src/dance/motion.ts';
 import { INPUT_LAG_S, songDuration, stepAt, type Song } from '../src/dance/song.ts';
 import { customSong, danceTempo, SONGS } from '../src/dance/songs.ts';
 import { paramsFor } from '../src/dance/targetPose.ts';
@@ -103,8 +104,11 @@ describe('corrections', () => {
 
 const SONG = SONGS[0].song;
 
-/** Plays the whole song with a dancer that performs each move `lag` seconds after the coach. */
-function playSong({ lag, errorOn, noise = 0, song: SONG_ = SONG }: { lag: number; errorOn?: MoveId; noise?: number; song?: Song }) {
+/**
+ * Plays the whole song with a dancer that follows the coach's moving choreography `lag` seconds late.
+ * A `frozen` dancer only strikes each move's pictogram pose and holds it.
+ */
+function playSong({ lag, errorOn, noise = 0, song: SONG_ = SONG, frozen = false }: { lag: number; errorOn?: MoveId; noise?: number; song?: Song; frozen?: boolean }) {
   const SONG = SONG_;
   const random = seededRandom(5);
   let state = newDance();
@@ -112,7 +116,8 @@ function playSong({ lag, errorOn, noise = 0, song: SONG_ = SONG }: { lag: number
   for (let t = 0; t <= songDuration(SONG) + 1; t += 1 / 30) {
     const i = stepAt(SONG, t - lag);
     const move: MoveId | null = i >= 0 ? SONG.steps[i].move : null;
-    const params = move ? paramsFor(MOVES[move], move === errorOn ? { L: -50 } : {}) : {};
+    const pose = frozen ? (move ? MOVES[move] : null) : poseAt(SONG, t - lag);
+    const params = pose ? paramsFor(pose, move === errorOn ? { L: -50 } : {}) : {};
     const r = stepDance(state, SONG, t, bodyFor(params, noise, random));
     state = r.state;
     verdicts.push(...r.verdicts);
@@ -179,6 +184,13 @@ describe('timing', () => {
     expect(state.counts.perfect).toBe(SONG.steps.length);
     expect(state.finished).toBe(true);
     expect(stars(state.points, SONG)).toBe(5);
+  });
+
+  it('striking each pose and standing still in it is not dancing', () => {
+    const moving = playSong({ lag: INPUT_LAG_S }).state;
+    const frozen = playSong({ lag: INPUT_LAG_S, frozen: true }).state;
+    expect(frozen.counts.perfect).toBeLessThan(SONG.steps.length / 2);
+    expect(frozen.points).toBeLessThan(moving.points * 0.75);
   });
 
   it('camera jitter does not cost Perfects', () => {
