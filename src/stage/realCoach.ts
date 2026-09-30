@@ -1,9 +1,11 @@
-import { Bone, Box3, Group, Mesh, Quaternion, Vector3, type Object3D } from 'three';
+import { Bone, Box3, CanvasTexture, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3, type Object3D } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
 import { CoachMotion, type CoachView } from './coach.ts';
 import { buildHat } from './hats.ts';
+import { recolor, type Look } from './outfits.ts';
 import type { Hat } from './themes.ts';
 
 const RAD = Math.PI / 180;
@@ -34,9 +36,38 @@ function findBone(root: Object3D, name: string): Bone {
   return found;
 }
 
+/** Gives a copy of the model its own recoloured texture; geometry stays shared. */
+function dress(model: Object3D, look: Look): void {
+  model.traverse((o) => {
+    if (!(o instanceof Mesh) || !(o.material instanceof MeshStandardMaterial)) return;
+    const source = o.material.map;
+    const image = source?.image as CanvasImageSource & { width: number; height: number } | undefined;
+    if (!source || !image) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(image, 0, 0);
+    const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    recolor(pixels.data, look);
+    ctx.putImageData(pixels, 0, 0);
+    const map = new CanvasTexture(canvas);
+    map.flipY = source.flipY;
+    map.colorSpace = source.colorSpace;
+    map.wrapS = source.wrapS;
+    map.wrapT = source.wrapT;
+    const material = o.material.clone();
+    material.map = map;
+    o.material = material;
+  });
+}
+
 export interface RealCoachOptions {
   /** Standing height in scene units. The coach is 2.25; avatars are smaller. */
   height?: number;
+  /** An avatar's outfit, skin, hair and hat. Without it the model keeps its own look. */
+  look?: Look;
   /** Shadows cost a pass per mesh; avatars skip them. */
   castShadow?: boolean;
 }
@@ -66,14 +97,18 @@ export class RealCoach implements CoachView {
   private readonly headTop: Vector3;
   private hat: Group | null = null;
 
-  /** Loads a model once per URL; each URL is used by one dancer, so no skeleton cloning is needed. */
+  /** Downloads a model once per URL. Every dancer gets its own copy of the skeleton. */
   static async load(url: string, options: RealCoachOptions = {}): Promise<RealCoach> {
     let scene = gltfCache.get(url);
     if (!scene) {
       scene = new GLTFLoader().loadAsync(url).then((g) => g.scene);
       gltfCache.set(url, scene);
     }
-    return new RealCoach(await scene, options);
+    const model = cloneSkinned(await scene);
+    if (options.look) dress(model, options.look);
+    const coach = new RealCoach(model, options);
+    if (options.look) coach.setHat(options.look.hat);
+    return coach;
   }
 
   private constructor(model: Object3D, { height = HEIGHT, castShadow = true }: RealCoachOptions) {

@@ -9,6 +9,7 @@ import type { MoveTarget } from '../dance/moves.ts';
 import { Coach, type CoachView, type Outfit } from './coach.ts';
 import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
+import { CREW_LOOKS } from './outfits.ts';
 import { THEMES, type StageTheme } from './themes.ts';
 
 const FLOOR_COLS = 11, FLOOR_ROWS = 9, TILE = 1.1;
@@ -39,8 +40,8 @@ const CREW_SLOTS: readonly { x: number; z: number }[] = [{ x: -2.3, z: -1 }, { x
 const CREW_SCALE = 0.62;
 /** Name tags float just above a raised hand of a crew avatar. */
 const TAG_HEIGHT = 2.95 * CREW_SCALE;
-/** One distinct realistic model per slot, loaded only when a room has other players. */
-const CREW_MODELS: readonly string[] = ['models/xbot.glb', 'models/soldier.glb', 'models/avatar.glb'];
+/** Avatars are the coach's own model, so every dancer on stage has one style. Each slot has its own look. */
+const DANCER_MODEL = 'models/michelle.glb';
 const CREW_OUTFITS: readonly Outfit[] = [
   { top: 0x56f3c1, pants: 0x8140d0, hair: 0x271f46 },
   { top: 0xffda4b, pants: 0x8cd1fa, hair: 0xfe8b85 },
@@ -78,7 +79,7 @@ export class Stage implements StageView {
   private readonly ramp: Texture;
   private readonly crew = new Map<string, { coach: CoachView; tag: HTMLDivElement; slot: number; pose: MoveTarget | null }>();
   /** Realistic avatar per slot once loaded; until then the slot shows a cartoon figure. */
-  private readonly crewModels: (RealCoach | null)[] = CREW_MODELS.map(() => null);
+  private readonly crewModels: (RealCoach | null)[] = CREW_LOOKS.map(() => null);
   private crewLoading = false;
   private readonly tagLayer: HTMLDivElement;
   private theme: StageTheme = THEMES.neon;
@@ -162,7 +163,7 @@ export class Stage implements StageView {
     this.coach.setHat(this.theme.hat);
     this.coach.group.traverse((o) => { if (o instanceof Mesh) o.castShadow = true; });
     this.scene.add(this.coach.group);
-    RealCoach.load(`${import.meta.env.BASE_URL}models/michelle.glb`).then(
+    RealCoach.load(`${import.meta.env.BASE_URL}${DANCER_MODEL}`).then(
       (real) => {
         this.scene.remove(this.coach.group);
         real.setHat(this.theme.hat);
@@ -214,18 +215,18 @@ export class Stage implements StageView {
     this.camera.updateProjectionMatrix();
   }
 
-  /** Starts downloading the avatar models, so they're ready when the song starts. Safe to call often. */
+  /** Dresses the avatars ahead of the song. The model is the coach's, so nothing extra downloads. Safe to call often. */
   preloadCrew(): void {
     if (this.crewLoading) return;
     this.crewLoading = true;
-    CREW_MODELS.forEach((url, slot) => {
-      RealCoach.load(`${import.meta.env.BASE_URL}${url}`, { height: 2.25 * CREW_SCALE, castShadow: false }).then(
+    CREW_LOOKS.forEach((look, slot) => {
+      RealCoach.load(`${import.meta.env.BASE_URL}${DANCER_MODEL}`, { height: 2.25 * CREW_SCALE, castShadow: false, look }).then(
         (real) => {
           this.crewModels[slot] = real;
           // Swap the cartoon placeholder for the real model if that slot is already on stage.
           for (const a of this.crew.values()) if (a.slot === slot) this.placeAvatar(a, real);
         },
-        (err: unknown) => console.warn('Avatar model unavailable, keeping the cartoon figure', url, err),
+        (err: unknown) => console.warn('Avatar model unavailable, keeping the cartoon figure', err),
       );
     });
   }
