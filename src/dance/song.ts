@@ -1,4 +1,5 @@
-import type { MoveId } from './moves.ts';
+import type { Mocap } from './mocap.ts';
+import type { MoveId, MoveTarget } from './moves.ts';
 
 export interface Step {
   move: MoveId;
@@ -6,6 +7,8 @@ export interface Step {
   beat: number;
   /** How many beats the pose is held. */
   beats: number;
+  /** A recorded dance's pose at the step's first beat: what its pictogram shows. `move` is the nearest built-in move. */
+  pose?: MoveTarget;
 }
 
 export interface Song {
@@ -17,6 +20,8 @@ export interface Song {
   introBeats: number;
   totalBeats: number;
   steps: Step[];
+  /** A dance recorded from a real dancer: the coach performs it and the player is judged on it, beat for beat. */
+  mocap?: Mocap;
 }
 
 export interface SongShape {

@@ -20,7 +20,11 @@ export interface CoachPose {
 /** Anything that can show the coach: the cartoon one or the rigged human. */
 export interface CoachView {
   readonly group: Group;
-  update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void;
+  /**
+   * Shows `target`, or the idle groove for null. `clip` is the time in a recorded dance: a coach that
+   * has the recording performs it with the whole body, and one that doesn't follows `target`.
+   */
+  update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number, clip?: number | null): void;
   setHat(hat: Hat): void;
 }
 

@@ -8,6 +8,7 @@ import { Sfx } from './audio/sfx.ts';
 import { newDance, stars, stepDance, type DanceState, type Verdict } from './dance/dance.ts';
 import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
 import { MOVES, type MoveTarget } from './dance/moves.ts';
+import { songClipSeconds } from './dance/mocap.ts';
 import { poseAt } from './dance/motion.ts';
 import { beatLength, songDuration } from './dance/song.ts';
 import { DEFAULT_SONG, songInfo, type SongId } from './dance/songs.ts';
@@ -431,7 +432,9 @@ function frame(now: number, dt: number): void {
   if (wide && Object.keys(mp.getState().players).length > 1) stage.preloadCrew();
   const showCrew = livePhase(kind) && wide;
   stage.setCrew(showCrew ? crewMembers(now) : []);
-  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing }, dt);
+  // A song danced to a recording: the coach performs the recording itself, exactly on the music.
+  const clip = dancing ? songClipSeconds(song, songTime()) : null;
+  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing, clip }, dt);
 
   // Live multiplayer scoreboard: visible during the dance when ≥2 players share the room.
   if (dancing && Object.keys(mp.getState().players).length > 1) {

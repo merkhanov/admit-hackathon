@@ -95,7 +95,7 @@ const minutes = (seconds: number) => {
 function signatureMove(song: Song) {
   const plain = new Set(['wings', 'up', 'vee']);
   const step = song.steps.find((s) => !plain.has(s.move)) ?? song.steps[0];
-  return MOVES[step.move];
+  return step.pose ?? MOVES[step.move];
 }
 
 const recordDate = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });

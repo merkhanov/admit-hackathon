@@ -84,7 +84,7 @@ export class Hud {
         node.className = 'picto';
         // Each pictogram gets the next colour of the palette, so neighbours are easy to tell apart.
         node.style.setProperty('--picto', PICTO_COLORS[i % PICTO_COLORS.length]);
-        node.innerHTML = pictogramSvg(MOVES[step.move], { outline: true });
+        node.innerHTML = pictogramSvg(step.pose ?? MOVES[step.move], { outline: true });
         this.track.append(node);
         this.pictoEls.set(i, node);
       }

@@ -72,7 +72,13 @@ export const ARM_ZERO_DEG = 50;
 /** A lowered arm that hangs below the frame is where a "down" target wants it. */
 const DOWN_DEG = 25;
 
-function armPart(s: Side, target: number, arm: ArmAngles): PartScore {
+/**
+ * With the elbow folded the hand stays near the shoulder, and the shoulder-to-wrist direction swings
+ * wildly for small movements, for the camera as much as for the dancer. The tolerance widens with the bend.
+ */
+const foldSlack = (elbow: number) => 1 + Math.max(0, 120 - elbow) / 60;
+
+function armPart(s: Side, target: number, arm: ArmAngles, targetElbow: number, recorded: boolean): PartScore {
   if (!arm.ok && arm.offBottom) {
     return Math.abs(target) <= DOWN_DEG
       ? { part: PART_ARM[s], score: 1, hint: '' }
@@ -87,7 +93,8 @@ function armPart(s: Side, target: number, arm: ArmAngles): PartScore {
   else if (target < -15 && arm.dir > 0) action = 'уведи через тело к другому боку';
   else if (target > 15 && arm.dir < -15) action = 'отведи в сторону от тела';
   else action = Math.abs(target) > Math.abs(arm.dir) ? 'подними выше' : 'опусти ниже';
-  const score = clamp01(1 - (err - ARM_FULL_DEG) / (ARM_ZERO_DEG - ARM_FULL_DEG));
+  const slack = recorded ? foldSlack(targetElbow) : 1;
+  const score = clamp01(1 - (err - ARM_FULL_DEG * slack) / ((ARM_ZERO_DEG - ARM_FULL_DEG) * slack));
   return { part: PART_ARM[s], score, hint: `${ARM[s]} рука: ${action} на ${Math.round(err)}°` };
 }
 
@@ -96,7 +103,7 @@ function elbowPart(s: Side, target: number, arm: ArmAngles): PartScore | null {
   const err = Math.abs(arm.elbow - target);
   const hint = arm.elbow < target
     ? `Выпрями ${ELBOW[s]} локоть: сейчас ${Math.round(arm.elbow)}°`
-    : `Согни ${ELBOW[s]} локоть: сейчас ${Math.round(arm.elbow)}°, нужно около ${target}°`;
+    : `Согни ${ELBOW[s]} локоть: сейчас ${Math.round(arm.elbow)}°, нужно около ${Math.round(target)}°`;
   return { part: PART_ELBOW[s], score: clamp01(1 - (err - 30) / 50), hint };
 }
 
@@ -108,7 +115,7 @@ function tiltPart(target: number, tilt: number): PartScore {
   }
   const need = target - tilt;
   const side = need > 0 ? 'влево' : 'вправо';
-  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: `Наклонись ${side} сильнее: сейчас ${Math.round(Math.abs(tilt))}°, нужно ${Math.abs(target)}°` };
+  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: `Наклонись ${side} сильнее: сейчас ${Math.round(Math.abs(tilt))}°, нужно ${Math.round(Math.abs(target))}°` };
 }
 
 function squatPart(squat: boolean, drop: number): PartScore {
@@ -119,12 +126,13 @@ function squatPart(squat: boolean, drop: number): PartScore {
 
 /**
  * How well the body matches a move, 0..1. Half the average of the parts, half the worst part,
- * so one arm completely off can't hide behind three perfect parts.
+ * so one arm completely off can't hide behind three perfect parts. A `recorded` dance forgives the
+ * direction of a folded arm (see foldSlack); the built-in moves stay strict so they can be told apart.
  */
-export function evaluate(target: MoveTarget, body: BodyAngles): MoveEval {
+export function evaluate(target: MoveTarget, body: BodyAngles, { recorded = false } = {}): MoveEval {
   const parts: PartScore[] = [];
   for (const s of SIDES) {
-    parts.push(armPart(s, target.arms[s].dir, body.arms[s]));
+    parts.push(armPart(s, target.arms[s].dir, body.arms[s], target.arms[s].elbow, recorded));
     const e = elbowPart(s, target.arms[s].elbow, body.arms[s]);
     if (e) parts.push(e);
   }

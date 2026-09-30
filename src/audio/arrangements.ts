@@ -219,6 +219,50 @@ const zhorga: Arrangement = (k) => {
   k.kick(last, 0.8, 70);
 };
 
+// ---------- «Самба»: our own melody over a batucada groove ----------
+
+const SAMBA_A = parseScore(`
+  E5 1/2 G5 1/2 A5 1 G5 1/2 E5 1/2 | D5 1/2 E5 1/2 G5 1 E5 1 | C5 1/2 D5 1/2 E5 1 D5 1/2 C5 1/2 | A4 2 |
+  E5 1/2 G5 1/2 A5 1 C6 1/2 A5 1/2 | G5 1/2 A5 1/2 G5 1/2 E5 1/2 D5 1 | E5 1/2 D5 1/2 C5 1 D5 1/2 E5 1/2 | C5 2`);
+const SAMBA_CHORDS = ['C', 'Am', 'Dm', 'G7', 'C', 'Am', 'Dm', 'C'];
+
+/** Two-beat bars, as samba is counted. */
+const samba: Arrangement = (k) => {
+  const first = k.song.introBeats, last = lastMoveBeat(k);
+  const bar = (b: number, chord: string, dancing: boolean) => {
+    // Surdo: the low drum answers on the second beat, harder than on the first.
+    k.kick(b, 0.45, 55);
+    k.kick(b + 1, 0.85, 48);
+    // Shakers and tamborim: every sixteenth, accents on the "e" and "a".
+    for (let i = 0; i < 8; i++) k.hiss(b + i / 4, 'highpass', 6000, i % 4 === 1 || i % 4 === 3 ? 0.12 : 0.06, 0.04);
+    if (dancing) {
+      k.snare(b + 0.75, 0.22);
+      k.snare(b + 1.5, 0.18);
+      // Agogô bells, high then low.
+      k.pluck(b, 1320, 0.1, 5000, 0.12);
+      k.pluck(b + 0.5, 990, 0.1, 5000, 0.12);
+      k.pluck(b + 1.25, 1320, 0.08, 5000, 0.1);
+    }
+    // Guitar comping: bass on the beat, chord on the syncopations.
+    const bass = chordFreqs(chord, 2);
+    k.tone(b, bass[0], 0.45, 'triangle', 0.36, 900);
+    k.tone(b + 1, bass[2] / 2, 0.45, 'triangle', 0.3, 900);
+    for (const f of chordFreqs(chord, 3)) for (const x of [0.25, 0.75, 1.5]) k.pluck(b + x, f * 2, 0.07, 2600, 0.15);
+  };
+  for (let b = 0; b < first; b += 2) bar(b, b % 4 === 0 ? 'C' : 'G7', false);
+  for (let at = first; at < last; at += 16) {
+    perBar(at, 2, SAMBA_CHORDS, (b, c) => { if (b < last) bar(b, c, true); });
+    // Melody in the first and third of every four phrases, a flute doubling in the others.
+    const phrase = (at - first) / 16;
+    if (phrase % 2 === 0) k.play(SAMBA_A, at, (b, f) => { if (b < last) k.pluck(b, f, 0.2, 3600, 0.3); });
+    else k.play(SAMBA_A, at, (b, f, beats) => { if (b < last) k.held(b, f, beats, 'triangle', 0.06, 5000, 0.01); });
+  }
+  // Outro: a big final hit.
+  for (const f of chordFreqs('C', 3)) k.pluck(last, f * 2, 0.2, 2600, 0.8);
+  k.kick(last, 1, 45);
+  for (let b = last + 1; b < k.song.totalBeats; b += 2) bar(b, 'C', false);
+};
+
 export const ARRANGEMENTS: Record<string, Arrangement> = {
   neon: electro(['Am', 'F', 'C', 'G'], false),
   party: electro(['C', 'G', 'Am', 'F'], true),
@@ -226,4 +270,5 @@ export const ARRANGEMENTS: Record<string, Arrangement> = {
   cancan,
   troll,
   zhorga,
+  samba,
 };

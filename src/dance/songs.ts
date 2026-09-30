@@ -1,4 +1,6 @@
 import type { MoveId } from './moves.ts';
+import { buildMocapSong } from './mocap.ts';
+import { SAMBA } from './mocap/samba.ts';
 import { buildSong, type Song } from './song.ts';
 
 /** What the song picker says about a song. */
@@ -93,6 +95,13 @@ export const SONGS: readonly SongInfo[] = [
     credit: 'Казахский народный танец · мелодия написана для игры',
     dances: 'Всадник, камча, руки в боки',
     coach: 'Джигит в калпаке',
+  },
+  {
+    // Danced to a recording of a real dancer, at the tempo it was recorded, so her steps land on the music.
+    song: buildMocapSong('samba', 'Самба', 60 / SAMBA.beat, SAMBA, 48),
+    credit: 'Своя мелодия · танец записан с живой танцовщицы',
+    dances: 'Настоящая самба: движения всего тела записаны с человека',
+    coach: 'Танцовщица',
   },
 ];
 

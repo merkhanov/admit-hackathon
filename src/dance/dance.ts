@@ -145,7 +145,7 @@ export function followEval(song: Song, time: number, body: BodyAngles): MoveEval
   for (const dt of [-TIMING_SLACK_S, 0, TIMING_SLACK_S]) {
     const target = poseAt(song, time - INPUT_LAG_S + dt);
     if (!target) continue;
-    const e = evaluate(target, body);
+    const e = evaluate(target, body, { recorded: song.mocap !== undefined });
     if (!best || e.score > best.score) best = e;
   }
   return best;

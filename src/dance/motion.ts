@@ -1,5 +1,6 @@
 import { angleDiff } from './judge.ts';
 import { MOVES, type ArmTarget, type MoveId, type MoveTarget } from './moves.ts';
+import { clipSeconds, mocapPose } from './mocap.ts';
 import { beatLength, type Song } from './song.ts';
 
 /**
@@ -113,6 +114,8 @@ export function poseAt(song: Song, time: number): MoveTarget | null {
   const beat = time / beatLength(song);
   const i = song.steps.findIndex((s) => beat >= s.beat && beat < s.beat + s.beats);
   if (i < 0) return null;
+  // A recorded dance: exactly what the dancer did at this beat.
+  if (song.mocap) return mocapPose(song.mocap, clipSeconds(song.mocap, beat - song.introBeats));
   const step = song.steps[i];
   const poses = MOTIONS[step.move].poses;
   const local = beat - step.beat;

@@ -1,4 +1,4 @@
-import { Bone, Box3, CanvasTexture, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3, type Object3D } from 'three';
+import { AnimationMixer, Bone, Box3, CanvasTexture, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3, type AnimationClip, type Object3D } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { MoveTarget } from '../dance/moves.ts';
@@ -12,6 +12,11 @@ const RAD = Math.PI / 180;
 const HEIGHT = 2.25;
 /** Tilts limb directions slightly towards the camera, so elbows bend forward rather than flipping. */
 const TOWARD_CAMERA = 0.12;
+/**
+ * A limb pointing across the body comes this much further forward, so the hand passes in front of the
+ * chest and face as a person's does, instead of through them.
+ */
+const ACROSS_FORWARD = 0.9;
 /** Head radius as a share of the head bone's length, and how far up the skull a hat sits. */
 const HEAD_RADIUS = 0.8;
 const HAT_SEAT = 1.08;
@@ -73,7 +78,10 @@ export interface RealCoachOptions {
   castShadow?: boolean;
 }
 
-const gltfCache = new Map<string, Promise<Object3D>>();
+const gltfCache = new Map<string, Promise<{ scene: Object3D; animations: AnimationClip[] }>>();
+
+/** The recorded dance in the coach's model that the mocap songs are extracted from (scripts/extract-dance.mjs). */
+const DANCE_CLIP = 'SambaDance';
 
 /**
  * A rigged human dancer with a Mixamo-standard skeleton (the coach is Michelle; player avatars are
@@ -97,22 +105,32 @@ export class RealCoach implements CoachView {
   /** Top of the skull in the head bone's space. */
   private readonly headTop: Vector3;
   private hat: Group | null = null;
+  /** Plays the recorded dance, when the model has one. */
+  private readonly mixer: AnimationMixer | null = null;
+  /** Every bone's rest pose, restored when a recorded dance hands back to the eased angles. */
+  private readonly bind = new Map<Bone, { q: Quaternion; p: Vector3 }>();
+  private recorded = false;
+  private readonly leftHip: Bone;
+  private readonly rightHip: Bone;
+  /** Where the hips stand at rest, in the group's space: the recorded dance is kept on this spot. */
+  private readonly hipsHome: Vector3;
 
   /** Downloads a model once per URL. Every dancer gets its own copy of the skeleton. */
   static async load(url: string, options: RealCoachOptions = {}): Promise<RealCoach> {
-    let scene = gltfCache.get(url);
-    if (!scene) {
-      scene = new GLTFLoader().loadAsync(url).then((g) => g.scene);
-      gltfCache.set(url, scene);
+    let gltf = gltfCache.get(url);
+    if (!gltf) {
+      gltf = new GLTFLoader().loadAsync(url).then((g) => ({ scene: g.scene, animations: g.animations }));
+      gltfCache.set(url, gltf);
     }
-    const model = cloneSkinned(await scene);
+    const { scene, animations } = await gltf;
+    const model = cloneSkinned(scene);
     if (options.look) dress(model, options.look);
-    const coach = new RealCoach(model, options);
+    const coach = new RealCoach(model, options, animations.find((a) => a.name === DANCE_CLIP) ?? null);
     if (options.look) coach.setHat(options.look.hat);
     return coach;
   }
 
-  private constructor(model: Object3D, { height = HEIGHT, castShadow = true }: RealCoachOptions) {
+  private constructor(model: Object3D, { height = HEIGHT, castShadow = true }: RealCoachOptions, clip: AnimationClip | null) {
     this.model = model;
     model.traverse((o) => {
       if (o instanceof Mesh) {
@@ -153,6 +171,15 @@ export class RealCoach implements CoachView {
     for (const b of [this.arms.L.arm, this.arms.L.fore, this.arms.R.arm, this.arms.R.fore, this.spine, this.hips, this.neck, this.upLeg.L, this.upLeg.R, this.leg.L, this.leg.R]) {
       this.rest.set(b, b.quaternion.clone());
     }
+    this.leftHip = findBone(model, 'LeftUpLeg');
+    this.rightHip = findBone(model, 'RightUpLeg');
+    model.traverse((o) => { if (o instanceof Bone) this.bind.set(o, { q: o.quaternion.clone(), p: o.position.clone() }); });
+    model.updateMatrixWorld(true);
+    this.hipsHome = this.group.worldToLocal(this.hips.getWorldPosition(new Vector3()));
+    if (clip) {
+      this.mixer = new AnimationMixer(model);
+      this.mixer.clipAction(clip).play();
+    }
   }
 
   setHat(hat: Hat): void {
@@ -167,8 +194,17 @@ export class RealCoach implements CoachView {
     this.head.add(this.hat);
   }
 
-  update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void {
+  update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number, clip: number | null = null): void {
+    // Keep easing towards the target even while the recording plays, so handing back is smooth.
     const p = this.motion.step(target, beatIndex, dt);
+    if (clip !== null && this.mixer) {
+      this.performRecording(clip);
+      return;
+    }
+    if (this.recorded) {
+      this.recorded = false;
+      for (const [b, rest] of this.bind) { b.quaternion.copy(rest.q); b.position.copy(rest.p); }
+    }
     for (const [b, q] of this.rest) b.quaternion.copy(q);
 
     const bounce = Math.abs(Math.sin(Math.PI * beatPhase));
@@ -194,11 +230,32 @@ export class RealCoach implements CoachView {
 
     for (const s of ['L', 'R'] as const) {
       const sign = s === 'L' ? -1 : 1;
-      const dirAt = (deg: number) => new Vector3(sign * Math.sin(deg * RAD), -Math.cos(deg * RAD), TOWARD_CAMERA).normalize();
+      const dirAt = (deg: number) => new Vector3(sign * Math.sin(deg * RAD), -Math.cos(deg * RAD), TOWARD_CAMERA + ACROSS_FORWARD * Math.max(0, -Math.sin(deg * RAD))).normalize();
       const { arm, fore, hand } = this.arms[s];
       pointBone(arm, fore, dirAt(p.dir[s] - p.bend[s] / 2));
       pointBone(fore, hand, dirAt(p.dir[s] + p.bend[s] / 2));
     }
+  }
+
+  /**
+   * Performs the recorded dance at `seconds`: every bone as the dancer moved it. Her hips are turned to
+   * face the camera, as scripts/extract-dance.mjs turns them when it measures the dance the player copies,
+   * and she dances on her spot instead of wandering across the stage.
+   */
+  private performRecording(seconds: number): void {
+    const mixer = this.mixer;
+    if (!mixer) return;
+    this.recorded = true;
+    this.model.position.set(0, this.baseY, 0);
+    mixer.setTime(seconds);
+    this.model.updateMatrixWorld(true);
+    const across = this.leftHip.getWorldPosition(tmpA).sub(this.rightHip.getWorldPosition(tmpB)).setY(0);
+    // Screen-right (+x) is her own left side when she faces us.
+    rotateWorld(this.hips, new Vector3(0, 1, 0), Math.atan2(across.z, across.x));
+    const hips = this.group.worldToLocal(this.hips.getWorldPosition(tmpA));
+    this.model.position.x -= hips.x - this.hipsHome.x;
+    this.model.position.z -= hips.z - this.hipsHome.z;
+    this.model.updateMatrixWorld(true);
   }
 }
 

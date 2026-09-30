@@ -6,18 +6,27 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
 const MODELS = [
-  { url: 'https://threejs.org/examples/models/gltf/Michelle.glb', path: 'public/models/michelle.glb' },
+  {
+    // The same file from the three.js repository, for networks that can't reach threejs.org.
+    urls: ['https://threejs.org/examples/models/gltf/Michelle.glb', 'https://raw.githubusercontent.com/mrdoob/three.js/dev/examples/models/gltf/Michelle.glb'],
+    path: 'public/models/michelle.glb',
+  },
 ];
 
 mkdirSync('public/models', { recursive: true });
 for (const m of MODELS) {
   if (existsSync(m.path)) continue;
-  try {
-    const res = await fetch(m.url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    writeFileSync(m.path, Buffer.from(await res.arrayBuffer()));
-    console.log(`fetched ${m.path}`);
-  } catch (err) {
-    console.warn(`Could not fetch ${m.url} (${err.message}). The cartoon coach will be used instead.`);
+  const errors = [];
+  for (const url of m.urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      writeFileSync(m.path, Buffer.from(await res.arrayBuffer()));
+      console.log(`fetched ${m.path}`);
+      break;
+    } catch (err) {
+      errors.push(`${url} (${err.message})`);
+    }
   }
+  if (!existsSync(m.path)) console.warn(`Could not fetch ${errors.join(', ')}. The cartoon coach will be used instead.`);
 }

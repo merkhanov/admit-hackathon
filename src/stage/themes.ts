@@ -24,6 +24,8 @@ export const THEMES: Record<string, StageTheme> = {
   cancan: { background: 0xffc7e3, backdrop: ['#fff0f6', '#ffb3d6', '#c48cff'], floor: [0xff6fb1, 0xffd23f, 0xc9b6ff, 0xff9a4a, 0xffffff], rims: [0xff6fb1, 0xffd23f], hat: 'bow' },
   troll: { background: 0x8fd6c0, backdrop: ['#e3ffd6', '#9be0c8', '#6aa3d8'], floor: [0x46dd9b, 0x4cbcff, 0xa0e060, 0xffd23f, 0x7ad7c0], rims: [0x46dd9b, 0xffd23f], hat: 'crown' },
   zhorga: { background: 0x9fd9ff, backdrop: ['#fff3c4', '#ffd98a', '#7cc4ff'], floor: [0xffd23f, 0xff9a4a, 0x46dd9b, 0x4cbcff, 0xffe3a3], rims: [0xffd23f, 0x4cbcff], hat: 'kalpak' },
+  // Carnival: sunset orange, hot pink, lime and turquoise.
+  samba: { background: 0xffb070, backdrop: ['#fff2b0', '#ffa07a', '#ff5fa2'], floor: [0xff6fb1, 0xffd23f, 0x46dd9b, 0x22d3ee, 0xff9a4a], rims: [0xff2fb3, 0xffd23f], hat: 'none' },
   custom: { background: 0xb9a2ff, backdrop: ['#d6f5ff', '#c9b6ff', '#ff9ccc'], floor: CANDY, rims: [0x4cbcff, 0xff6fb1], hat: 'cap' },
 };
 
