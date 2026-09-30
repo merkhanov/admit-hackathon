@@ -8,7 +8,7 @@ import { Sfx } from './audio/sfx.ts';
 import { newDance, stars, stepDance, type DanceState, type Verdict } from './dance/dance.ts';
 import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
 import { MOVES, type MoveTarget } from './dance/moves.ts';
-import { songClipSeconds } from './dance/mocap.ts';
+import { clipSeconds, songClipSeconds } from './dance/mocap.ts';
 import { poseAt } from './dance/motion.ts';
 import { beatLength, songDuration } from './dance/song.ts';
 import { DEFAULT_SONG, songInfo, type SongId } from './dance/songs.ts';
@@ -155,6 +155,49 @@ const CREW_MIN_WIDTH = 900;
 /** Phases where the camera runs and the other players' avatars mirror them live. */
 const livePhase = (kind: Flow['phase']['kind']): boolean =>
   kind === 'calibrating' || kind === 'warmup' || kind === 'waiting' || kind === 'countdown' || kind === 'dancing';
+
+/**
+ * The real dancer's video, standing in for the coach on songs made from a video. It plays muted
+ * (the game plays its own music) and follows the song clock: the same recording time the player is
+ * judged against. If the video can't load, the 3D coach dances the recording instead.
+ */
+const coachVideo = (() => {
+  const el = document.getElementById('coach-video');
+  if (!(el instanceof HTMLVideoElement)) return { show: () => false };
+  let src = '';
+  let failed = '';
+  // H.264 plays almost everywhere; builds without it (some Linux browsers) get VP9.
+  const ext = el.canPlayType('video/mp4; codecs="avc1.640028"') ? 'mp4' : 'webm';
+  el.addEventListener('error', () => { failed = src; el.classList.remove('on'); });
+  /** Drift the video may have from the music before it is put back on time. */
+  const MAX_DRIFT_S = 0.12;
+  return {
+    /** Shows `song`'s dancer at song `time` (seconds); returns whether the video is on screen. */
+    show(song: import('./dance/song.ts').Song | null, time: number): boolean {
+      if (!song?.video || !song.mocap || failed === song.video) {
+        if (!el.paused) el.pause();
+        el.classList.remove('on');
+        return false;
+      }
+      if (src !== song.video) {
+        src = song.video;
+        el.src = `${import.meta.env.BASE_URL}${src}.${ext}`;
+      }
+      const at = clipSeconds(song.mocap, (time * song.bpm) / 60 - song.introBeats);
+      const inTake = time > 0 && at > 0 && at < el.duration - 0.05;
+      if (inTake) {
+        if (el.paused) void el.play().catch(() => undefined);
+        if (Math.abs(el.currentTime - at) > MAX_DRIFT_S) el.currentTime = at;
+      } else {
+        // Before her first beat and after her last, she waits on the first or last frame.
+        if (!el.paused) el.pause();
+        if (el.readyState > 0 && Math.abs(el.currentTime - at) > MAX_DRIFT_S) el.currentTime = at;
+      }
+      el.classList.toggle('on', el.readyState >= 2);
+      return el.readyState >= 2;
+    },
+  };
+})();
 
 function crewMembers(now: number): CrewMember[] {
   return Object.values(mp.getState().players)
@@ -343,7 +386,8 @@ function bannerFor(): Banner | null {
   }
   if (kind === 'dancing' && verdict && clock < verdict.until) {
     const v = verdict.v;
-    if (!v.hint) return { tone: 'good', label: 'Идеально', text: `${MOVES[v.move].name}: точно как у тренера!` };
+    // A recorded dance's steps have no names of their own: the nearest built-in move would mislabel them.
+    if (!v.hint) return { tone: 'good', label: 'Идеально', text: playing.song.mocap ? 'Точно как у танцора!' : `${MOVES[v.move].name}: точно как у тренера!` };
     return v.rating === 'miss'
       ? { tone: 'miss', label: 'Мимо', text: v.hint }
       : { tone: 'fix', label: 'Почти', text: v.hint, progress: v.score };
@@ -434,7 +478,8 @@ function frame(now: number, dt: number): void {
   stage.setCrew(showCrew ? crewMembers(now) : []);
   // A song danced to a recording: the coach performs the recording itself, exactly on the music.
   const clip = dancing ? songClipSeconds(song, songTime()) : null;
-  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing, clip }, dt);
+  const videoOn = coachVideo.show(kind === 'countdown' || dancing ? song : null, dancing ? songTime() : 0);
+  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing, clip, hideCoach: videoOn }, dt);
 
   // Live multiplayer scoreboard: visible during the dance when ≥2 players share the room.
   if (dancing && Object.keys(mp.getState().players).length > 1) {

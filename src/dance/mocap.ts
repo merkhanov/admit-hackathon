@@ -13,6 +13,10 @@ export interface Mocap {
   fps: number;
   /** Seconds per beat of the dance as it was captured. */
   beat: number;
+  /** Seconds into the recording of its first beat. */
+  offset?: number;
+  /** False for a dance recorded once, start to finish, such as a video: it plays once instead of repeating. */
+  loop?: boolean;
   /** Per frame: left arm direction, left elbow, right arm direction, right elbow, tilt, squat %. */
   frames: readonly (readonly number[])[];
 }
@@ -20,14 +24,31 @@ export interface Mocap {
 /** Whole beats of the recording: the loop that repeats. */
 export const loopBeats = (m: Mocap): number => Math.max(1, Math.round(m.frames.length / m.fps / m.beat));
 
+/**
+ * Deepest lean a recording asks for. Dancers bend far sideways, but the game reads a lean from the
+ * shoulder line: past this a player would have to fold over to copy it, and the camera can't read it.
+ */
+export const MAX_RECORDED_TILT = 30;
+
 /** The frame's pose as a move target, so the judge and pictograms treat it like any move. */
 function framePose(f: readonly number[]): MoveTarget {
   const depth = Math.max(0, Math.min(1, f[5] / 100));
-  return { name: '', arms: { L: { dir: f[0], elbow: f[1] }, R: { dir: f[2], elbow: f[3] } }, tilt: f[4], squat: depth >= 0.5, depth };
+  const tilt = Math.max(-MAX_RECORDED_TILT, Math.min(MAX_RECORDED_TILT, f[4]));
+  return { name: '', arms: { L: { dir: f[0], elbow: f[1] }, R: { dir: f[2], elbow: f[3] } }, tilt, squat: depth >= 0.5, depth };
 }
 
-/** Where in the recording (seconds) a dance `beats` beats in is; it loops on a whole beat. */
+/** How long the recording is, in seconds. */
+export const recordingSeconds = (m: Mocap): number => m.frames.length / m.fps;
+
+/** Whole beats a one-take recording has after its first beat. */
+export const recordedBeats = (m: Mocap): number => Math.floor((recordingSeconds(m) - (m.offset ?? 0)) / m.beat);
+
+/**
+ * Where in the recording (seconds) a dance `beats` beats in is. A loop repeats on a whole beat;
+ * a one-take recording starts at its first beat and holds its first and last frames outside it.
+ */
 export function clipSeconds(m: Mocap, beats: number): number {
+  if (m.loop === false) return Math.max(0, Math.min(recordingSeconds(m) - 1 / m.fps, (m.offset ?? 0) + beats * m.beat));
   const loop = loopBeats(m);
   return ((((beats % loop) + loop) % loop) * m.beat);
 }
@@ -37,7 +58,8 @@ export function mocapPose(m: Mocap, seconds: number): MoveTarget {
   const n = m.frames.length;
   const x = seconds * m.fps;
   const i = Math.floor(x);
-  return blendPose(framePose(m.frames[((i % n) + n) % n]), framePose(m.frames[(((i + 1) % n) + n) % n]), x - i);
+  const at = (k: number) => m.frames[m.loop === false ? Math.max(0, Math.min(n - 1, k)) : ((k % n) + n) % n];
+  return blendPose(framePose(at(i)), framePose(at(i + 1)), x - i);
 }
 
 /** The built-in move that looks most like a pose: its name goes in the verdict ("Самолёт: точно как у тренера!"). */

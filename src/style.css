@@ -56,6 +56,22 @@ html, body {
 [hidden] { display: none !important; }
 
 #scene { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+/* A real dancer's video stands on the stage in place of the 3D coach. */
+#coach-video {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  height: min(82vh, 150vw);
+  aspect-ratio: 9 / 16;
+  transform: translate(-50%, -50%);
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  z-index: 5;
+  display: none;
+  pointer-events: none;
+}
+#coach-video.on { display: block; }
 
 #screens { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-screens); }
 #screens button { pointer-events: auto; }

@@ -134,7 +134,8 @@ describe('songs', () => {
 
   it('every built-in song lasts about a minute and has its own id', () => {
     for (const { song } of SONGS) {
-      expect(songDuration(song)).toBeGreaterThan(50);
+      // A song from a video lasts as long as the dancer's take.
+      expect(songDuration(song)).toBeGreaterThan(song.mocap?.loop === false ? 10 : 50);
       expect(songDuration(song)).toBeLessThan(80);
     }
     expect(new Set(SONGS.map((s) => s.song.id)).size).toBe(SONGS.length);

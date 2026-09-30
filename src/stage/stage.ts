@@ -26,6 +26,8 @@ export interface StageFrame {
   playing: boolean;
   /** Seconds into the coach's recorded dance, for a song danced to a recording; null otherwise. */
   clip?: number | null;
+  /** A video of the real dancer is standing in for the coach. */
+  hideCoach?: boolean;
 }
 
 /** Another player in the room, shown as a small avatar next to the coach. */
@@ -292,6 +294,7 @@ export class Stage implements StageView {
   draw(frame: StageFrame, dt: number): void {
     const beatIndex = Math.floor(frame.beat);
     const phase = frame.beat - beatIndex;
+    this.coach.group.visible = !frame.hideCoach;
     this.coach.update(frame.target, frame.playing ? phase : (performance.now() / 600) % 1, frame.playing ? beatIndex : Math.floor(performance.now() / 600), dt, frame.clip ?? null);
     for (const a of this.crew.values()) a.coach.update(a.pose, phase, beatIndex, dt);
 

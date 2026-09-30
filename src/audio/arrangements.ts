@@ -271,4 +271,8 @@ export const ARRANGEMENTS: Record<string, Arrangement> = {
   troll,
   zhorga,
   samba,
+  // Songs from the dancer's videos: our own grooves at the tempo she danced to.
+  dance1: electro(['Dm', 'Bb', 'F', 'C'], false),
+  dance2: electro(['Em', 'C', 'G', 'D'], true),
+  dance3: electro(['Am', 'G', 'F', 'E'], true),
 };
