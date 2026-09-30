@@ -1,5 +1,11 @@
 import type { SongId } from '../dance/songs.ts';
 
+/**
+ * A player's body in six rounded numbers: left arm direction, left elbow, right arm direction,
+ * right elbow (degrees, as in dance/moves.ts), shoulder tilt (degrees) and squat depth (0..100 %).
+ */
+export type CompactPose = [number, number, number, number, number, number];
+
 /** A player's live/final performance snapshot shared across the room. */
 export interface MPPlayer {
   id: string;
@@ -38,6 +44,8 @@ export type MPMessage =
   | { type: 'songSelect'; songId: SongId }
   | { type: 'songStart'; songId: SongId; startedAt: number }
   | { type: 'liveScore'; playerId: string; score: number; combo: number }
+  /** About 10 times a second while dancing, so desktops can draw every player's avatar. */
+  | { type: 'pose'; playerId: string; pose: CompactPose }
   | { type: 'result'; playerId: string; score: number; stars: number; accuracy: number }
   | { type: 'podium'; entries: PodiumEntry[] }
   | { type: 'reset' };

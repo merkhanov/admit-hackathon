@@ -93,6 +93,9 @@ export function stepSession(state: MultiplayerState, msg: MPMessage): { state: M
       events.push({ kind: 'resultReceived', playerId: msg.playerId });
       return { state: { ...state, players }, events };
     }
+    case 'pose':
+      // Poses are streamed straight to the stage by the manager; they never touch the roster.
+      return { state, events };
     case 'podium': {
       events.push({ kind: 'podiumReady', entries: msg.entries });
       return { state: { ...state, phase: 'podium' }, events };

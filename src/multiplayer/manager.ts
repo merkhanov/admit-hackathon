@@ -1,5 +1,5 @@
 import { buildPodium, emptyState, stepSession } from './session.ts';
-import type { MPEvent, MPMessage, MultiplayerState, PodiumEntry } from './types.ts';
+import type { CompactPose, MPEvent, MPMessage, MultiplayerState, PodiumEntry } from './types.ts';
 import type { MPTransport } from './transport.ts';
 import type { SongId } from '../dance/songs.ts';
 
@@ -22,6 +22,7 @@ export class MPManager {
   private hasSynced = false;
   private changeCbs: (() => void)[] = [];
   private eventCbs: ((ev: MPEvent) => void)[] = [];
+  private poseCbs: ((playerId: string, pose: CompactPose) => void)[] = [];
 
   constructor(selfId: string, name: string, transport: MPTransport) {
     this.selfId = selfId;
@@ -52,6 +53,11 @@ export class MPManager {
 
   onEvent(cb: (ev: MPEvent) => void): void {
     this.eventCbs.push(cb);
+  }
+
+  /** Other players' poses as they arrive; our own are never echoed back. */
+  onPose(cb: (playerId: string, pose: CompactPose) => void): void {
+    this.poseCbs.push(cb);
   }
 
   setName(name: string): void {
@@ -89,6 +95,14 @@ export class MPManager {
   sendLiveScore(score: number, combo: number): void {
     if (!this.state.roomId) return;
     this.dispatch({ type: 'liveScore', playerId: this.selfId, score, combo });
+  }
+
+  /** How often a client streams its pose during the dance (ms). */
+  static readonly POSE_MS = 100;
+
+  sendPose(pose: CompactPose): void {
+    if (!this.state.roomId) return;
+    this.transport.send({ type: 'pose', playerId: this.selfId, pose });
   }
 
   sendResult(score: number, stars: number, accuracy: number): void {
@@ -151,6 +165,10 @@ export class MPManager {
   }
 
   private receive(msg: MPMessage): void {
+    if (msg.type === 'pose') {
+      if (msg.playerId !== this.selfId) for (const cb of this.poseCbs) cb(msg.playerId, msg.pose);
+      return;
+    }
     if (msg.type === 'sync') {
       const { state } = stepSession(this.state, msg);
       this.state = { ...state, isHost: this.wantsHost && Object.keys(state.players).length <= 1 };
