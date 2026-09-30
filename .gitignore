@@ -35,3 +35,6 @@ public/models/
 
 # Local debugging harnesses and large assets
 lab/
+
+# Videos of real dancers: private, shown only where someone puts them locally (see scripts/extract-video-dance.mjs).
+public/dancers/
