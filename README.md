@@ -8,7 +8,9 @@
 
 ## Демо
 
-<video src="docs/demo.mp4" poster="docs/demo-poster.jpg" controls preload="metadata" style="max-width: 100%"></video>
+[![Демо игры](docs/demo.gif)](docs/demo.mp4)
+
+Полное видео на 2 минуты: [docs/demo.mp4](docs/demo.mp4).
 
 Запись игры от 30 сентября. Сначала лобби с кодом комнаты, потом танец вдвоем, andrew и Yernar. Видно оценки, подсказки для руки и живую таблицу очков.
 
