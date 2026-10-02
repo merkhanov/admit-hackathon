@@ -26,12 +26,19 @@ export interface BodyAngles {
   drop: number | null;
 }
 
+/**
+ * Which way to move, as the player sees it on screen (the view is a mirror, so the player's left is
+ * screen-left). Drawn as a big arrow next to the hint, so it reads at a glance from across the room.
+ */
+export type Cue = 'up' | 'down' | 'left' | 'right' | 'bend' | 'straighten' | 'look';
+
 export interface PartScore {
   part: PartId;
   /** 0..1 */
   score: number;
   /** What to change, in the player's terms. */
   hint: string;
+  cue?: Cue;
 }
 
 export interface MoveEval {
@@ -81,9 +88,9 @@ function armPart(s: Side, target: number, arm: ArmAngles, targetElbow: number, r
   if (!arm.ok && arm.offBottom) {
     return Math.abs(target) <= DOWN_DEG
       ? { part: PART_ARM[s], score: 1, hint: '' }
-      : { part: PART_ARM[s], score: 0, hint: t(`hint.armBelow.${s}`) };
+      : { part: PART_ARM[s], score: 0, hint: t(`hint.armBelow.${s}`), cue: 'up' };
   }
-  if (!arm.ok) return { part: PART_ARM[s], score: 0, hint: t(`hint.armLost.${s}`) };
+  if (!arm.ok) return { part: PART_ARM[s], score: 0, hint: t(`hint.armLost.${s}`), cue: 'look' };
   const err = Math.abs(angleDiff(arm.dir, target));
   // Speak in terms of the arc a person feels: across the body, out to the side, higher or lower.
   let action: 'down' | 'head' | 'across' | 'out' | 'up' | 'lower';
@@ -94,33 +101,37 @@ function armPart(s: Side, target: number, arm: ArmAngles, targetElbow: number, r
   else action = Math.abs(target) > Math.abs(arm.dir) ? 'up' : 'lower';
   const slack = recorded ? foldSlack(targetElbow) : 1;
   const score = clamp01(1 - (err - ARM_FULL_DEG * slack) / ((ARM_ZERO_DEG - ARM_FULL_DEG) * slack));
-  return { part: PART_ARM[s], score, hint: t(`hint.arm.${s}`, { action: t(`action.${action}`), deg: Math.round(err) }) };
+  // The player's left arm is on screen-left: moving it out goes left, across the body goes right.
+  const outward: Cue = s === 'L' ? 'left' : 'right', inward: Cue = s === 'L' ? 'right' : 'left';
+  const cue: Cue = action === 'up' || action === 'head' ? 'up' : action === 'out' ? outward : action === 'across' ? inward : 'down';
+  return { part: PART_ARM[s], score, hint: t(`hint.arm.${s}`, { action: t(`action.${action}`), deg: Math.round(err) }), cue };
 }
 
 function elbowPart(s: Side, target: number, arm: ArmAngles): PartScore | null {
   if (!arm.ok) return null;
   const err = Math.abs(arm.elbow - target);
-  const hint = arm.elbow < target
+  const straighten = arm.elbow < target;
+  const hint = straighten
     ? t(`hint.straighten.${s}`, { now: Math.round(arm.elbow) })
     : t(`hint.bend.${s}`, { now: Math.round(arm.elbow), target: Math.round(target) });
-  return { part: PART_ELBOW[s], score: clamp01(1 - (err - 30) / 50), hint };
+  return { part: PART_ELBOW[s], score: clamp01(1 - (err - 30) / 50), hint, cue: straighten ? 'straighten' : 'bend' };
 }
 
 function tiltPart(target: number, tilt: number): PartScore {
   const err = Math.abs(tilt - target);
   if (target === 0) {
     // Generous: raising one arm hikes that shoulder by itself.
-    return { part: 'tilt', score: clamp01(1 - (err - 15) / 20), hint: t(tilt > 0 ? 'hint.upright.left' : 'hint.upright.right', { deg: Math.round(err) }) };
+    return { part: 'tilt', score: clamp01(1 - (err - 15) / 20), hint: t(tilt > 0 ? 'hint.upright.left' : 'hint.upright.right', { deg: Math.round(err) }), cue: tilt > 0 ? 'right' : 'left' };
   }
   const need = target - tilt;
   const key = need > 0 ? 'hint.lean.left' : 'hint.lean.right';
-  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: t(key, { now: Math.round(Math.abs(tilt)), target: Math.round(Math.abs(target)) }) };
+  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: t(key, { now: Math.round(Math.abs(tilt)), target: Math.round(Math.abs(target)) }), cue: need > 0 ? 'left' : 'right' };
 }
 
 function squatPart(squat: boolean, drop: number): PartScore {
   return squat
-    ? { part: 'squat', score: clamp01(drop / 0.35), hint: t('hint.squatLower') }
-    : { part: 'squat', score: 1 - clamp01((drop - 0.25) / 0.3), hint: t('hint.standUp') };
+    ? { part: 'squat', score: clamp01(drop / 0.35), hint: t('hint.squatLower'), cue: 'down' }
+    : { part: 'squat', score: 1 - clamp01((drop - 0.25) / 0.3), hint: t('hint.standUp'), cue: 'up' };
 }
 
 /**

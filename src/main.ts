@@ -358,11 +358,11 @@ function bannerFor(): Banner | null {
     // A recorded dance's steps have no names of their own: the nearest built-in move would mislabel them.
     if (!v.hint) return { tone: 'good', label: t('banner.perfect'), text: playing.song.mocap ? t('banner.mocapPerfect') : t('banner.movePerfect', { move: moveName(v.move) }) };
     return v.rating === 'miss'
-      ? { tone: 'miss', label: t('banner.miss'), text: v.hint }
-      : { tone: 'fix', label: t('banner.almost'), text: v.hint, progress: v.score };
+      ? { tone: 'miss', label: t('banner.miss'), text: v.hint, cue: v.cue }
+      : { tone: 'fix', label: t('banner.almost'), text: v.hint, progress: v.score, cue: v.cue };
   }
   if (kind === 'warmup' && liveMatch?.worst && clock - warmupMissSince > WARMUP_HINT_AFTER_S) {
-    return { tone: 'fix', label: t('banner.fix'), text: liveMatch.worst.hint, progress: liveMatch.score };
+    return { tone: 'fix', label: t('banner.fix'), text: liveMatch.worst.hint, progress: liveMatch.score, cue: liveMatch.worst.cue };
   }
   if (kind === 'results') {
     // The hand-up gesture's own near-miss hint: "raise your hand higher to start".

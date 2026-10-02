@@ -1,5 +1,5 @@
 import { t } from '../i18n.ts';
-import { angleDiff, evaluate, type BodyAngles, type MoveEval, type PartId } from './judge.ts';
+import { angleDiff, evaluate, type Cue, type BodyAngles, type MoveEval, type PartId } from './judge.ts';
 import type { MoveId } from './moves.ts';
 import { poseAt } from './motion.ts';
 import { INPUT_LAG_S, judgeWindow, type Song } from './song.ts';
@@ -25,6 +25,8 @@ export interface Verdict {
   /** The correction for the worst part, or null when the move was clean. */
   hint: string | null;
   part: PartId | null;
+  /** Which way to move to fix it, for the arrow next to the hint. */
+  cue: Cue | null;
 }
 
 export interface DanceState {
@@ -119,13 +121,14 @@ function finalize(s: DanceState, song: Song): Verdict {
   const still = best !== null && moving < 0.6;
   let hint: string | null = null;
   let part: PartId | null = null;
+  let cue: Cue | null = null;
   if (rating !== 'perfect') {
     // Standing still is the thing to fix unless a part was clearly wrong; out of frame comes first.
-    if (!best) hint = t('hint.unseen');
+    if (!best) { hint = t('hint.unseen'); cue = 'look'; }
     else if (still && (!worst || worst.score > 0.3)) hint = t('hint.still');
-    else { hint = worst?.hint ?? t('hint.still'); part = worst?.part ?? null; }
+    else { hint = worst?.hint ?? t('hint.still'); part = worst?.part ?? null; cue = worst?.cue ?? null; }
   }
-  const verdict: Verdict = { index: s.index, move: step.move, rating, score, hint, part };
+  const verdict: Verdict = { index: s.index, move: step.move, rating, score, hint, part, cue };
   s.index++;
   s.best = null;
   s.worst = null;

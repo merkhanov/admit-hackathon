@@ -1,12 +1,26 @@
 import { maxPoints, ratingName, STAR_THRESHOLDS, stars, type DanceState, type Rating } from '../dance/dance.ts';
 import { MOVES } from '../dance/moves.ts';
+import type { Cue } from '../dance/judge.ts';
 import { beatTime, type Song } from '../dance/song.ts';
 import { t } from '../i18n.ts';
 import { pictogramSvg } from './pictogram.ts';
 
-export type Banner =
+export type Banner = (
   | { tone: 'fix' | 'calib'; label: string; text: string; progress: number }
-  | { tone: 'frame' | 'miss' | 'good'; label: string; text: string };
+  | { tone: 'frame' | 'miss' | 'good'; label: string; text: string }
+) & { cue?: Cue | null };
+
+/** Big direction icons next to a correction, readable from across the room. Arrows rotate by CSS. */
+const CUE_SVG: Record<Cue, string> = {
+  up: '<path d="M24 40V9M11 22 24 9l13 13"/>',
+  down: '<path d="M24 40V9M11 22 24 9l13 13"/>',
+  left: '<path d="M24 40V9M11 22 24 9l13 13"/>',
+  right: '<path d="M24 40V9M11 22 24 9l13 13"/>',
+  bend: '<path d="M10 38c0-16 10-26 28-26"/><path d="m30 4 8 8-8 8"/>',
+  straighten: '<path d="M7 24h34M15 16l-8 8 8 8M33 16l8 8-8 8"/>',
+  look: '<path d="M4 24c6-9 13-13 20-13s14 4 20 13c-6 9-13 13-20 13S10 33 4 24z"/><circle cx="24" cy="24" r="5"/>',
+};
+const cueSvg = (cue: Cue) => `<svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">${CUE_SVG[cue]}</svg>`;
 
 function el<T extends HTMLElement>(id: string, type: new () => T): T {
   const node = document.getElementById(id);
@@ -36,6 +50,8 @@ export class Hud {
   private readonly bannerLabel = el('banner-label', HTMLElement);
   private readonly bannerText = el('banner-text', HTMLElement);
   private readonly bannerMeter = el('banner-meter', HTMLElement);
+  private readonly bannerCue = el('banner-cue', HTMLElement);
+  private shownCue: Cue | null = null;
   private readonly pictoEls = new Map<number, HTMLElement>();
   private shownStars = -1;
 
@@ -106,7 +122,24 @@ export class Hud {
     if (!b) return;
     this.banner.dataset.tone = b.tone;
     this.bannerLabel.textContent = b.label;
-    if (this.bannerText.textContent !== b.text) this.bannerText.textContent = b.text;
+    const cue = b.cue ?? null;
+    if (cue !== this.shownCue) {
+      this.shownCue = cue;
+      this.bannerCue.innerHTML = cue ? cueSvg(cue) : '';
+      if (cue) this.bannerCue.dataset.cue = cue;
+      this.banner.classList.toggle('has-cue', cue !== null);
+    }
+    if (this.bannerText.textContent !== b.text) {
+      this.bannerText.textContent = b.text;
+      // A new correction pops, a miss shakes, and the camera window flashes so the eye goes to the limb.
+      const alert = b.tone === 'fix' || b.tone === 'miss';
+      for (const [node, cls] of [[this.banner, 'pop'], [this.banner, 'shake'], [this.pip, 'alert']] as const) node.classList.remove(cls);
+      void this.banner.offsetWidth;
+      if (alert) {
+        this.banner.classList.add(b.tone === 'miss' ? 'shake' : 'pop');
+        this.pip.classList.add('alert');
+      }
+    }
     const hasMeter = b.tone === 'fix' || b.tone === 'calib';
     this.bannerMeter.hidden = !hasMeter;
     if (hasMeter) this.bannerMeter.style.setProperty('--p', String(Math.max(0, Math.min(1, b.progress))));

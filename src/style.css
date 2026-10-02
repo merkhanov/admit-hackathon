@@ -277,13 +277,15 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   position: fixed;
   left: var(--edge);
   bottom: var(--edge);
-  width: min(640px, calc(56vw - var(--edge)));
-  padding: 16px 24px 20px;
+  width: min(760px, calc(60vw - var(--edge)));
+  padding: 18px 26px 22px;
   border-radius: var(--radius-lg);
+  border: 5px solid var(--white);
   background: var(--white);
   color: var(--ink);
   box-shadow: var(--shadow-card);
   display: grid;
+  grid-template-columns: 1fr;
   gap: 8px;
   animation: rise-in 220ms var(--ease-out-expo) both;
   z-index: var(--z-hint);
@@ -296,7 +298,7 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   background: var(--lavender-mist);
   color: var(--ink);
 }
-.banner-text { font: 800 clamp(1.3rem, 2.2vw, 1.75rem)/1.25 var(--font); }
+.banner-text { font: 900 clamp(1.5rem, 2.8vw, 2.2rem)/1.2 var(--font); }
 .banner-meter { height: 12px; border-radius: 6px; background: var(--lavender-mist); overflow: hidden; }
 .banner-meter i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: var(--grape); transition: width 100ms linear; }
 .banner[data-tone='fix'] .banner-label { background: var(--sunshine); }
@@ -305,6 +307,41 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 .banner[data-tone='frame'] { box-shadow: 0 0 0 5px var(--coral), var(--shadow-card); }
 .banner[data-tone='calib'] .banner-label { background: var(--sky); }
 .banner[data-tone='good'] .banner-label { background: var(--mint); }
+
+/* Corrections are the point of the game: tinted card, thick tone border, a big arrow showing which way to move. */
+.banner[data-tone='fix'] { background: oklch(0.98 0.05 95); border-color: var(--sunshine); }
+.banner[data-tone='miss'] { background: oklch(0.97 0.03 25); border-color: var(--coral); }
+.banner[data-tone='good'] { border-color: var(--mint); }
+.banner.has-cue { grid-template-columns: auto 1fr; column-gap: 20px; }
+.banner.has-cue > :not(.banner-cue) { grid-column: 2; }
+.banner-cue { display: none; }
+.banner.has-cue .banner-cue {
+  grid-column: 1;
+  grid-row: 1 / span 3;
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: clamp(64px, 7vw, 96px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--sunshine);
+  color: var(--ink);
+}
+.banner[data-tone='miss'] .banner-cue { background: var(--coral); }
+.banner-cue svg { width: 64%; height: 64%; animation: cue-nudge 0.7s ease-in-out infinite alternate; }
+.banner-cue[data-cue='down'] svg { rotate: 180deg; }
+.banner-cue[data-cue='left'] svg { rotate: -90deg; }
+.banner-cue[data-cue='right'] svg { rotate: 90deg; }
+.banner-cue[data-cue='bend'] svg, .banner-cue[data-cue='straighten'] svg, .banner-cue[data-cue='look'] svg { animation: cue-throb 0.7s ease-in-out infinite alternate; }
+/* The nudge runs along the arrow, after its rotation, so each arrow bobs in its own direction. */
+@keyframes cue-nudge { to { transform: translateY(-5px); } }
+@keyframes cue-throb { to { transform: scale(1.12); } }
+.banner.pop { animation: hint-pop 420ms var(--ease-out-expo) both; }
+.banner.shake { animation: hint-shake 420ms var(--ease-out) both; }
+@keyframes hint-pop { 0% { transform: scale(0.9); } 55% { transform: scale(1.04); } 100% { transform: scale(1); } }
+@keyframes hint-shake { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-10px); } 40% { transform: translateX(9px); } 60% { transform: translateX(-6px); } 80% { transform: translateX(3px); } }
+.pip.alert { animation: pip-alert 0.5s ease-out 3; }
+@keyframes pip-alert { 0% { box-shadow: 0 0 0 0 oklch(0.76 0.14 24 / 0.9), var(--shadow-float); } 100% { box-shadow: 0 0 0 18px oklch(0.76 0.14 24 / 0), var(--shadow-float); } }
 
 /* HUD: score top-left, star gauge down the left edge. */
 .hud { position: fixed; inset: 0; pointer-events: none; z-index: var(--z-hud); }
@@ -514,6 +551,12 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   .tutorial-icon { width: 64px; height: 64px; padding: 6px; margin: 0; align-self: flex-start; }
   .ring { width: 96px; height: 96px; }
   .banner { left: 12px; right: 12px; bottom: 12px; width: auto; padding: 12px 16px 14px; }
+  .banner { border-width: 4px; gap: 6px; }
+  .banner-text { font-size: 1.15rem; }
+  .banner-label { font-size: 0.85rem; padding: 3px 10px; }
+  .banner-meter { height: 8px; }
+  .banner.has-cue { column-gap: 12px; }
+  .banner.has-cue .banner-cue { width: 52px; }
   .pictos { left: 12px; right: 12px; width: auto; bottom: 150px; height: 96px; }
   .pictos-now { width: 80px; height: 80px; }
   .picto { width: 72px; height: 72px; margin-left: -36px; top: 12px; }
