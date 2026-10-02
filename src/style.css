@@ -541,7 +541,16 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 
 /* Phones: hint full width at the bottom, pictograms above it, smaller camera and gauge. */
 @media (max-width: 720px) {
-  .gesture-card { flex-basis: 45%; }
+  /* The intro fits one screen: the four moves become a row of small tiles, the start button stays in view. */
+  .intro-card { padding: 20px 18px; }
+  .logo { font-size: clamp(2.4rem, 13vw, 3.2rem); }
+  .lead { font-size: 1rem; margin: 12px 0 16px; }
+  .gesture-grid { flex-wrap: nowrap; gap: 8px; margin-bottom: 18px; }
+  .gesture-card { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 4px; padding: 10px 4px 8px; text-align: center; }
+  .gesture-card strong { font-size: clamp(0.66rem, 3.1vw, 0.8rem); line-height: 1.15; }
+  .gesture-icon { width: 40px; height: 40px; }
+  .intro-card .cta { width: 100%; padding: 18px 20px; font-size: 1.1rem; }
+  .fineprint { font-size: 0.85rem; margin-top: 12px; }
   .song-grid { grid-template-columns: 1fr; }
   .song-card { padding: 6px 10px; }
   .over-columns { grid-template-columns: 1fr; }
@@ -580,8 +589,71 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 #screens input { pointer-events: auto; }
 .screen.over, .screen.lobby { justify-content: flex-start; }
 .over-card { margin: auto; pointer-events: auto; position: relative; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
-.lobby-card { width: min(720px, 100%); max-height: 100%; overflow: auto; margin: auto; position: relative; pointer-events: auto; }
-.lobby-card h3 { margin-top: 18px; }
+/*
+ * The lobby fits the screen: a fixed header, a middle that scrolls on its own (songs beside the chosen
+ * song, its records and playing with friends) and a footer with the next step, always in view.
+ */
+.lobby-card {
+  width: min(1060px, 100%);
+  max-height: 100%;
+  margin: auto;
+  position: relative;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: clamp(18px, 3vw, 30px);
+}
+.lobby-head { flex: none; }
+.lobby-head h2 { margin: 0 0 2px; }
+.lobby-head .muted { margin: 0; }
+.lobby-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  display: grid;
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 8px 28px;
+  /* Room for focus rings and card shadows inside the scrolling area. */
+  margin: 10px -8px 0;
+  padding: 4px 8px 12px;
+}
+.lobby-card h3 { margin: 16px 0 8px; font-size: 1.05rem; }
+.lobby-songs > h3:first-child, .lobby-side > :first-child { margin-top: 0; }
+.lobby-songs .song-grid { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 8px; margin: 0 0 10px; }
+.lobby-songs .song-card { padding: 8px 12px; gap: 10px; }
+.lobby-songs .song-icon { width: 36px; height: 36px; }
+.lobby-songs .file-pick { padding: 10px 14px; }
+.lobby-side { display: flex; flex-direction: column; }
+.lobby-side .song-about { margin: 0; padding: 12px 14px; border-radius: var(--radius-md); background: var(--lavender-mist); }
+.lobby-side .board li { padding: 6px 12px; }
+.lobby-friends { margin-top: 6px; }
+.lobby-friends .lobby-actions { margin: 0; }
+.lobby-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  padding-top: 14px;
+  border-top: 2px solid var(--lavender-mist);
+}
+.lobby-foot .cta { min-width: min(280px, 100%); }
+.lobby-wait { margin: 0; font: 900 1.1rem var(--font); color: var(--grape); }
+/* A second choice next to the main one: same shape, quiet colours. */
+.cta.cta-secondary { background: var(--lavender-mist); color: var(--grape-deep); box-shadow: 0 4px 0 oklch(0.86 0.05 300); }
+.cta.cta-secondary:hover { background: oklch(0.93 0.04 300); box-shadow: 0 6px 0 oklch(0.86 0.05 300); }
+.cta.cta-secondary:active { box-shadow: 0 1px 0 oklch(0.86 0.05 300); }
+@media (max-width: 860px) {
+  .lobby-body { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 720px) {
+  .lobby-songs .song-grid { grid-template-columns: minmax(0, 1fr); }
+  .lobby-foot .cta { width: 100%; }
+  .lobby-card .lobby-actions .cta, .lobby-card .lobby-join .cta { flex: 1 1 auto; padding: 12px 18px; font-size: 1rem; }
+}
 .lobby-name { display: grid; gap: 8px; margin: 12px 0; }
 .lobby-name .cta { justify-self: start; padding: 14px 28px; font-size: 1.05rem; }
 .lobby-actions .cta, .lobby-join .cta { padding: 14px 26px; font-size: 1.05rem; }

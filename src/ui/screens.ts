@@ -143,6 +143,9 @@ function fileHtml(status: FileStatus): string {
     </label>`;
 }
 
+/** The lobby shows the chosen song's top three; the results screen shows all five. */
+const LOBBY_RECORDS = 3;
+
 function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string {
   let saved: string | null = null;
   try { saved = loadPlayerName(); } catch { saved = null; }
@@ -172,8 +175,8 @@ function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string
     ? `<div class="room-code-wrap"><span>${t('lobby.roomCode')}</span><strong class="room-code">${esc(roomId)}</strong></div>
        <button id="lobby-leave" type="button" class="link-btn">${t('lobby.leave')}</button>`
     : `<div class="lobby-actions">
-        <button id="lobby-create" class="cta" type="button">${t('lobby.create')}</button>
-        <button id="lobby-join-toggle" class="cta" type="button">${t('lobby.joinToggle')}</button>
+        <button id="lobby-create" class="cta cta-secondary" type="button">${t('lobby.create')}</button>
+        <button id="lobby-join-toggle" class="cta cta-secondary" type="button">${t('lobby.joinToggle')}</button>
       </div>
       ${showJoin ? `<div class="lobby-join">
         <input id="lobby-join-code" type="text" maxlength="6" placeholder="${esc(t('lobby.codePlaceholder'))}" autocomplete="off" />
@@ -191,35 +194,46 @@ function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string
   // A song file stays on this device, so rooms only offer the built-in songs.
   const songs = roomId ? m.songs.filter((c) => songInfo(c.key)) : m.songs;
   const interactive = !roomId || isHost;
+  // Songs on one side; on the other, the chosen song, its records and playing with friends.
   const songsBlock = `
     <h3>${t('lobby.song')}</h3>
-    <p class="muted">${t(roomId ? (isHost ? 'lobby.pickAll' : 'lobby.hostPicks') : 'lobby.pick')}</p>
+    ${roomId ? `<p class="muted">${t(isHost ? 'lobby.pickAll' : 'lobby.hostPicks')}</p>` : ''}
     <ul class="song-grid">${songs.map((c) => songCardHtml(c, c.key === m.selected.key, interactive, m.board(c.key)[0])).join('')}</ul>
+    ${roomId ? '' : fileHtml(m.fileStatus)}`;
+  const sideBlock = `
     <p class="song-about"><b>${q(m.selected.title)}:</b> ${esc(m.selected.dances)}. ${esc(t('lobby.coach', { coach: m.selected.coach }))}</p>
     ${m.selected.warning ? `<p class="song-warning">${esc(m.selected.warning)}</p>` : ''}
     <h3>${esc(t('lobby.records', { title: m.selected.title }))}</h3>
-    ${boardHtml(m.board(m.selected.key))}`;
+    ${boardHtml(m.board(m.selected.key).slice(0, LOBBY_RECORDS))}
+    <div class="lobby-friends">
+      <h3>${t('lobby.chip')}</h3>
+      ${roomBlock}
+      ${playersBlock}
+    </div>`;
 
+  // The one thing to do next, always in view at the bottom of the card.
   const startBlock = roomId
     ? (isHost
       ? `<button id="lobby-start" class="cta" type="button"${count < 1 ? ' disabled' : ''}>${t('lobby.start')}</button>`
-      : `<p class="muted">${t('lobby.waitHost')}</p>`)
-    : `<button id="start-btn" class="cta" type="button">${t('lobby.solo')}</button>
-       ${fileHtml(m.fileStatus)}
-       <p class="muted">${t('lobby.orRoom')}</p>`;
+      : `<p class="lobby-wait">${t('lobby.waitHost')}</p>`)
+    : `<button id="start-btn" class="cta" type="button">${t('lobby.solo')}</button>`;
 
   return `
   <section class="screen center lobby">
     <div class="over-card lobby-card">
-      <button id="lobby-menu" class="menu-x" type="button" aria-label="${t('menu')}" title="${t('menu')}">×</button>
-      ${langSwitchHtml()}
-      <p class="chip">${t('lobby.chip')}</p>
-      <h2>${t('lobby.title')}</h2>
-      ${nameBlock}
-      ${roomBlock}
-      ${playersBlock}
-      ${songsBlock}
-      ${startBlock}
+      <header class="lobby-head">
+        <button id="lobby-menu" class="menu-x" type="button" aria-label="${t('menu')}" title="${t('menu')}">×</button>
+        ${langSwitchHtml()}
+        <h2>${t('lobby.title')}</h2>
+        ${nameBlock}
+      </header>
+      <div class="lobby-body">
+        <div class="lobby-songs">${songsBlock}</div>
+        <div class="lobby-side">${sideBlock}</div>
+      </div>
+      <footer class="lobby-foot">
+        ${startBlock}
+      </footer>
     </div>
   </section>`;
 }
