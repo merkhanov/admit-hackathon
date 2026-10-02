@@ -196,10 +196,12 @@ export const EN: Record<Key, Entry> = {
   'podium.again': 'Dance again',
   'podium.note': 'The host brings everyone back to the lobby.',
 
-  'intro.lead': 'Dance in front of your camera. Copy the coach like a mirror, and the game scores every move and tells you what to fix: which arm to raise and by how much.',
+  'intro.tagline': 'Dance like a mirror. The game scores every move.',
+  'intro.tipDistance': 'Stand 1.5–2 m from the camera',
+  'intro.tipHands': 'No mouse needed, sitting works too',
+  'intro.tipPrivate': 'Your video never leaves the browser',
   'intro.demo': 'Start the demo without a camera',
   'intro.start': 'Turn on the camera and dance',
-  'intro.fine': "After this you won't need a mouse or keyboard. Stand 1.5–2 m from the camera so your head, shoulders and outstretched arms are in the frame. You can dance sitting down. The video is processed in your browser and never sent anywhere, and the music is generated there too.",
   'intro.credit': 'Admit Hackathon 2026, "Motion" case',
 
   'loading.title': 'Loading motion recognition',

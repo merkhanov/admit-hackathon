@@ -3,7 +3,7 @@ import type { ScoreEntry } from '../app/leaderboard.ts';
 import type { PartAccuracy } from '../app/summary.ts';
 import type { FileStatus } from '../app/tracks.ts';
 import { ratingName, type Rating } from '../dance/dance.ts';
-import { MOVES, moveName, type MoveId } from '../dance/moves.ts';
+import { MOVES } from '../dance/moves.ts';
 import { songDuration, type Song } from '../dance/song.ts';
 import { songInfo } from '../dance/songs.ts';
 import { loadPlayerName, savePlayerName } from '../multiplayer/persistence.ts';
@@ -72,7 +72,6 @@ export interface ScreenActions {
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
 const starRow = (n: number) => `<div class="star-row">${Array.from({ length: 5 }, (_, i) => `<i class="${i < n ? 'on' : ''}"></i>`).join('')}</div>`;
 
-const SHOWCASE: readonly MoveId[] = ['wings', 'discoL', 'muscles', 'leanL'];
 
 /** 6-char room code: Math.random base36 upper, without ambiguous 0/O/1/I. */
 const ROOM_OK = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
@@ -256,22 +255,22 @@ function podiumHtml(): string {
   </div>`;
 }
 
+/**
+ * The title screen: the coach dances in the middle of the stage, the name above her and the one thing
+ * to do below, like a game's title screen rather than a page of text.
+ */
 function introHtml(demo: boolean): string {
+  const tips = (['intro.tipDistance', 'intro.tipHands', 'intro.tipPrivate'] as const).map((k) => `<li>${esc(t(k))}</li>`).join('');
   return `
-  <section class="screen intro">
-    <div class="intro-card">
-      ${langSwitchHtml()}
+  <section class="screen intro title-screen">
+    <div class="title-lang">${langSwitchHtml()}</div>
+    <header class="title-logo">
       <h1 class="logo">Motion <span>Dance</span></h1>
-      <p class="lead">${t('intro.lead')}</p>
-      <ul class="gesture-grid">
-        ${SHOWCASE.map((id) => `
-          <li class="gesture-card">
-            <span class="gesture-icon">${pictogramSvg(MOVES[id], { outline: true })}</span>
-            <strong>${moveName(id)}</strong>
-          </li>`).join('')}
-      </ul>
-      <button class="cta" id="start-btn" type="button">${t(demo ? 'intro.demo' : 'intro.start')}</button>
-      <p class="fineprint">${t('intro.fine')}</p>
+    </header>
+    <div class="title-bottom">
+      <p class="tagline">${esc(t('intro.tagline'))}</p>
+      <button class="cta cta-hero" id="start-btn" type="button">${t(demo ? 'intro.demo' : 'intro.start')}</button>
+      <ul class="title-tips">${tips}</ul>
       <p class="credit">${esc(t('intro.credit'))}</p>
     </div>
   </section>`;
