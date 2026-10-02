@@ -2,12 +2,14 @@ import { COUNTDOWN_S, countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S
 import type { ScoreEntry } from '../app/leaderboard.ts';
 import type { PartAccuracy } from '../app/summary.ts';
 import type { FileStatus } from '../app/tracks.ts';
-import { RATING_NAMES, type Rating } from '../dance/dance.ts';
-import { MOVES, type MoveId } from '../dance/moves.ts';
+import { ratingName, type Rating } from '../dance/dance.ts';
+import { MOVES, moveName, type MoveId } from '../dance/moves.ts';
 import { songDuration, type Song } from '../dance/song.ts';
 import { songInfo } from '../dance/songs.ts';
 import { loadPlayerName, savePlayerName } from '../multiplayer/persistence.ts';
 import { mp, sharedPodium } from '../main.ts';
+import { isLang, lang, locale, setLang, t } from '../i18n.ts';
+import { langSwitchHtml } from './lang.ts';
 import { pictogramSvg } from './pictogram.ts';
 
 export interface RoundResult {
@@ -27,6 +29,8 @@ export interface RoundResult {
 export interface SongCard {
   key: string;
   song: Song;
+  /** The title in the current language. */
+  title: string;
   credit: string;
   dances: string;
   coach: string;
@@ -84,7 +88,9 @@ function makeRoomCode(): string {
   return out;
 }
 
-const mpStatusRu = (s: string): string => s === 'dancing' ? 'танцует' : s === 'done' ? 'готов' : 'в лобби';
+const playerStatus = (s: string): string => t(s === 'dancing' ? 'status.dancing' : s === 'done' ? 'status.done' : 'status.lobby');
+/** A song title in the language's quotation marks. */
+const q = (text: string) => esc(t('quote', { text }));
 
 const minutes = (seconds: number) => {
   const s = Math.round(seconds);
@@ -98,11 +104,11 @@ function signatureMove(song: Song) {
   return step.pose ?? MOVES[step.move];
 }
 
-const recordDate = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const recordDate = (iso: string) => new Date(iso).toLocaleString(locale(), { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 /** One song's top five: score, who, stars and when. */
 function boardHtml(board: readonly ScoreEntry[], mine?: ScoreEntry): string {
-  if (board.length === 0) return '<p class="muted">Рекордов пока нет. Станцуй первым!</p>';
+  if (board.length === 0) return `<p class="muted">${t('board.empty')}</p>`;
   return `<ol class="board">
     ${board.map((e) => `<li class="${e === mine ? 'me' : ''}"><span>${e.score}</span><em>${e.name ? `<b>${esc(e.name)}</b> · ` : ''}${'★'.repeat(Math.max(0, Math.min(5, e.stars)))} · ${recordDate(e.at)}</em></li>`).join('')}
   </ol>`;
@@ -112,10 +118,10 @@ function songCardHtml(c: SongCard, selected: boolean, interactive: boolean, best
   const inner = `
         <span class="song-icon">${pictogramSvg(signatureMove(c.song), { outline: true })}</span>
         <span class="song-text">
-          <strong>${esc(c.song.title)}</strong>
+          <strong>${esc(c.title)}</strong>
           <em>${esc(c.credit)}</em>
-          <small>${minutes(songDuration(c.song))} · ${c.song.steps.length} движений</small>
-          ${best ? `<small class="song-best">Рекорд: ${best.score}${best.name ? ` · ${esc(best.name)}` : ''}</small>` : ''}
+          <small>${minutes(songDuration(c.song))} · ${t('card.moves', { n: c.song.steps.length })}</small>
+          ${best ? `<small class="song-best">${t('card.best', { score: best.score })}${best.name ? ` · ${esc(best.name)}` : ''}</small>` : ''}
         </span>`;
   return `
     <li>
@@ -126,13 +132,13 @@ function songCardHtml(c: SongCard, selected: boolean, interactive: boolean, best
 }
 
 function fileHtml(status: FileStatus): string {
-  const note = status.kind === 'loading' ? `Слушаю «${esc(status.name)}» и ищу ритм…`
+  const note = status.kind === 'loading' ? esc(t('file.loading', { name: status.name }))
     : status.kind === 'error' ? esc(status.text)
-    : 'MP3, M4A, WAV или OGG с твоего устройства. Файл никуда не загружается: игра слушает его прямо в браузере и ставит движения на бит.';
+    : t('file.note');
   return `
     <label class="file-pick ${status.kind === 'error' ? 'file-error' : ''}">
       <input type="file" id="song-file" accept="audio/*" ${status.kind === 'loading' ? 'disabled' : ''} />
-      <strong>${status.kind === 'loading' ? 'Готовлю танец…' : '+ Танцевать под свою песню'}</strong>
+      <strong>${t(status.kind === 'loading' ? 'file.preparing' : 'file.cta')}</strong>
       <span>${note}</span>
     </label>`;
 }
@@ -154,31 +160,31 @@ function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string
   const full = count >= 4;
 
   const nameBlock = saved && !editName
-    ? `<p class="muted">Вы: <strong>${esc(saved)}</strong> <button id="lobby-edit-name" class="link-btn" type="button">Изменить</button></p>`
+    ? `<p class="muted">${t('lobby.you')} <strong>${esc(saved)}</strong> <button id="lobby-edit-name" class="link-btn" type="button">${t('lobby.edit')}</button></p>`
     : `<div class="lobby-name">
-        <label for="lobby-name-input">Ваше имя</label>
-        <input id="lobby-name-input" type="text" maxlength="24" placeholder="Введите имя" autocomplete="off" value="${esc(saved ?? '')}" />
-        <button id="lobby-save-name" class="cta" type="button">Сохранить</button>
-        <p class="muted">Имя сохраняется на этом устройстве${roomId ? ' и сразу видно всем в комнате' : ''}.</p>
+        <label for="lobby-name-input">${t('lobby.nameLabel')}</label>
+        <input id="lobby-name-input" type="text" maxlength="24" placeholder="${esc(t('lobby.namePlaceholder'))}" autocomplete="off" value="${esc(saved ?? '')}" />
+        <button id="lobby-save-name" class="cta" type="button">${t('lobby.save')}</button>
+        <p class="muted">${t(roomId ? 'lobby.nameNoteRoom' : 'lobby.nameNote')}</p>
       </div>`;
 
   const roomBlock = roomId
-    ? `<div class="room-code-wrap"><span>Код комнаты:</span><strong class="room-code">${esc(roomId)}</strong></div>
-       <button id="lobby-leave" type="button" class="link-btn">Покинуть</button>`
+    ? `<div class="room-code-wrap"><span>${t('lobby.roomCode')}</span><strong class="room-code">${esc(roomId)}</strong></div>
+       <button id="lobby-leave" type="button" class="link-btn">${t('lobby.leave')}</button>`
     : `<div class="lobby-actions">
-        <button id="lobby-create" class="cta" type="button">Создать комнату</button>
-        <button id="lobby-join-toggle" class="cta" type="button">Присоединиться по коду</button>
+        <button id="lobby-create" class="cta" type="button">${t('lobby.create')}</button>
+        <button id="lobby-join-toggle" class="cta" type="button">${t('lobby.joinToggle')}</button>
       </div>
       ${showJoin ? `<div class="lobby-join">
-        <input id="lobby-join-code" type="text" maxlength="6" placeholder="Код комнаты" autocomplete="off" />
-        <button id="lobby-join" class="cta" type="button"${full ? ' disabled' : ''}>Войти</button>
+        <input id="lobby-join-code" type="text" maxlength="6" placeholder="${esc(t('lobby.codePlaceholder'))}" autocomplete="off" />
+        <button id="lobby-join" class="cta" type="button"${full ? ' disabled' : ''}>${t('lobby.join')}</button>
       </div>` : ''}
-      ${full ? '<p class="muted">Комната заполнена (4/4).</p>' : ''}`;
+      ${full ? `<p class="muted">${t('lobby.full')}</p>` : ''}`;
 
   const playersBlock = roomId
-    ? `<h3>Игроки · ${count}/4</h3>
-      ${count === 0 ? '<p class="muted">Пока никого нет.</p>' : `<ul class="lobby-players">
-        ${players.map((p) => `<li><span>${esc(p.name)}</span>${p.isHost ? '<em class="host-badge">Хост</em>' : ''}<em>${esc(mpStatusRu(p.status))}</em></li>`).join('')}
+    ? `<h3>${t('lobby.players', { n: count })}</h3>
+      ${count === 0 ? `<p class="muted">${t('lobby.nobody')}</p>` : `<ul class="lobby-players">
+        ${players.map((p) => `<li><span>${esc(p.name)}</span>${p.isHost ? `<em class="host-badge">${t('lobby.host')}</em>` : ''}<em>${esc(playerStatus(p.status))}</em></li>`).join('')}
       </ul>`}`
     : '';
 
@@ -186,28 +192,29 @@ function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string
   const songs = roomId ? m.songs.filter((c) => songInfo(c.key)) : m.songs;
   const interactive = !roomId || isHost;
   const songsBlock = `
-    <h3>Песня</h3>
-    <p class="muted">${roomId ? (isHost ? 'Выберите песню для всех.' : 'Песню выбирает хост.') : 'Выберите песню.'}</p>
+    <h3>${t('lobby.song')}</h3>
+    <p class="muted">${t(roomId ? (isHost ? 'lobby.pickAll' : 'lobby.hostPicks') : 'lobby.pick')}</p>
     <ul class="song-grid">${songs.map((c) => songCardHtml(c, c.key === m.selected.key, interactive, m.board(c.key)[0])).join('')}</ul>
-    <p class="song-about"><b>«${esc(m.selected.song.title)}»:</b> ${esc(m.selected.dances)}. Тренер: ${esc(m.selected.coach.toLowerCase())}.</p>
+    <p class="song-about"><b>${q(m.selected.title)}:</b> ${esc(m.selected.dances)}. ${esc(t('lobby.coach', { coach: m.selected.coach }))}</p>
     ${m.selected.warning ? `<p class="song-warning">${esc(m.selected.warning)}</p>` : ''}
-    <h3>Рекорды «${esc(m.selected.song.title)}»</h3>
+    <h3>${esc(t('lobby.records', { title: m.selected.title }))}</h3>
     ${boardHtml(m.board(m.selected.key))}`;
 
   const startBlock = roomId
     ? (isHost
-      ? `<button id="lobby-start" class="cta" type="button"${count < 1 ? ' disabled' : ''}>Начать танец</button>`
-      : '<p class="muted">Ожидание хоста...</p>')
-    : `<button id="start-btn" class="cta" type="button">Танцевать одному</button>
+      ? `<button id="lobby-start" class="cta" type="button"${count < 1 ? ' disabled' : ''}>${t('lobby.start')}</button>`
+      : `<p class="muted">${t('lobby.waitHost')}</p>`)
+    : `<button id="start-btn" class="cta" type="button">${t('lobby.solo')}</button>
        ${fileHtml(m.fileStatus)}
-       <p class="muted">Или создайте комнату для игры с друзьями.</p>`;
+       <p class="muted">${t('lobby.orRoom')}</p>`;
 
   return `
   <section class="screen center lobby">
     <div class="over-card lobby-card">
-      <button id="lobby-menu" class="menu-x" type="button" aria-label="В главное меню" title="В главное меню">×</button>
-      <p class="chip">Мультиплеер · до 4 игроков</p>
-      <h2>Лобби</h2>
+      <button id="lobby-menu" class="menu-x" type="button" aria-label="${t('menu')}" title="${t('menu')}">×</button>
+      ${langSwitchHtml()}
+      <p class="chip">${t('lobby.chip')}</p>
+      <h2>${t('lobby.title')}</h2>
       ${nameBlock}
       ${roomBlock}
       ${playersBlock}
@@ -223,15 +230,15 @@ function podiumHtml(): string {
   const sorted = [...pod].sort((a, b) => a.place - b.place);
   return `
   <div class="mp-podium">
-    <h3>Общий зачёт</h3>
+    <h3>${t('podium.title')}</h3>
     <ol class="podium">
       ${sorted.map((e) => {
         const s = Math.max(0, Math.min(5, e.stars));
         return `<li class="${e.place === 1 ? 'winner' : ''}"><span class="pod-place">${e.place}</span><span class="pod-name">${esc(e.name)}</span><span class="pod-score">${e.score}</span><span class="pod-stars">${'★'.repeat(s)}${'☆'.repeat(5 - s)}</span></li>`;
       }).join('')}
     </ol>
-    <button id="lobby-again" class="cta" type="button">Танцевать снова</button>
-    <p class="muted">Хост вернёт всех в лобби.</p>
+    <button id="lobby-again" class="cta" type="button">${t('podium.again')}</button>
+    <p class="muted">${t('podium.note')}</p>
   </div>`;
 }
 
@@ -239,18 +246,19 @@ function introHtml(demo: boolean): string {
   return `
   <section class="screen intro">
     <div class="intro-card">
+      ${langSwitchHtml()}
       <h1 class="logo">Motion <span>Dance</span></h1>
-      <p class="lead">Танцуй перед камерой. Повторяй движения за тренером как в зеркале, а игра оценит каждое движение и подскажет, что поправить: какую руку поднять выше и насколько.</p>
+      <p class="lead">${t('intro.lead')}</p>
       <ul class="gesture-grid">
         ${SHOWCASE.map((id) => `
           <li class="gesture-card">
             <span class="gesture-icon">${pictogramSvg(MOVES[id], { outline: true })}</span>
-            <strong>${MOVES[id].name}</strong>
+            <strong>${moveName(id)}</strong>
           </li>`).join('')}
       </ul>
-      <button class="cta" id="start-btn" type="button">${demo ? 'Запустить демо без камеры' : 'Включить камеру и танцевать'}</button>
-      <p class="fineprint">Дальше мышь и клавиатура не нужны. Встань в 1,5–2 м от камеры, чтобы в кадре были голова, плечи и разведённые руки. Можно танцевать сидя. Видео обрабатывается прямо в браузере и никуда не отправляется, музыка генерируется там же.</p>
-      <p class="credit">Admit Hackathon 2026, кейс «Motion»</p>
+      <button class="cta" id="start-btn" type="button">${t(demo ? 'intro.demo' : 'intro.start')}</button>
+      <p class="fineprint">${t('intro.fine')}</p>
+      <p class="credit">${esc(t('intro.credit'))}</p>
     </div>
   </section>`;
 }
@@ -258,37 +266,33 @@ function introHtml(demo: boolean): string {
 const loadingHtml = () => `
   <section class="screen center">
     <div class="spinner" aria-hidden="true"></div>
-    <h2>Загружаю распознавание движений</h2>
+    <h2>${t('loading.title')}</h2>
     <div class="load-bar" aria-hidden="true"><i id="load-bar"></i></div>
-    <p class="muted" id="load-text">Разреши доступ к камере, если браузер спросит.</p>
-    <button id="loading-cancel" class="link-btn" type="button">Отмена</button>
+    <p class="muted" id="load-text">${t('loading.allow')}</p>
+    <button id="loading-cancel" class="link-btn" type="button">${t('loading.cancel')}</button>
   </section>`;
 
 const errorHtml = (message: string) => `
   <section class="screen center">
-    <h2>Камера не запустилась</h2>
+    <h2>${t('error.title')}</h2>
     <p class="error-text">${esc(message)}</p>
-    <button class="cta" id="retry-btn" type="button">Попробовать снова</button>
-    <button id="error-menu" class="link-btn" type="button">В главное меню</button>
+    <button class="cta" id="retry-btn" type="button">${t('error.retry')}</button>
+    <button id="error-menu" class="link-btn" type="button">${t('menu')}</button>
   </section>`;
 
-const STEP_BACK = {
-  close: { title: 'Отойди назад', text: 'Ты слишком близко к камере: сделай шаг-другой назад, чтобы разведённые в стороны руки поместились в кадр.' },
-  far: { title: 'Подойди ближе', text: 'Ты слишком далеко от камеры: подойди на шаг ближе.' },
-} as const;
 
 const calibHtml = (distance: ScreenModel['distance']) => `
   <section class="screen side">
     <div class="panel">
-      <p class="chip">Калибровка</p>
+      <p class="chip">${t('calib.chip')}</p>
       ${distance
         ? `<div class="step-back" role="alert">
             <span class="step-back-arrow" aria-hidden="true">${distance === 'close' ? '↓' : '↑'}</span>
-            <h2>${STEP_BACK[distance].title}</h2>
-            <p>${STEP_BACK[distance].text}</p>
+            <h2>${t(`stepBack.${distance}.title`)}</h2>
+            <p>${t(`stepBack.${distance}.text`)}</p>
           </div>`
-        : `<h2>Встань ровно и опусти руки</h2>
-      <p class="muted">Я запомню твою обычную позу. От неё считаются присед и наклоны.</p>`}
+        : `<h2>${t('calib.title')}</h2>
+      <p class="muted">${t('calib.text')}</p>`}
       <div class="ring" id="calib-ring" style="--p:0"><span id="calib-pct">0%</span></div>
     </div>
   </section>`;
@@ -304,11 +308,11 @@ function waitingHtml(): string {
   return `
   <section class="screen side">
     <div class="panel">
-      <p class="chip">Готово</p>
-      <h2>Ждём остальных</h2>
-      <p class="muted">Танец начнётся, когда все игроки пройдут калибровку.</p>
+      <p class="chip">${t('waiting.chip')}</p>
+      <h2>${t('waiting.title')}</h2>
+      <p class="muted">${t('waiting.text')}</p>
       <ul class="lobby-players">
-        ${players.map((p) => `<li><span>${esc(p.name)}${p.id === self ? ' (вы)' : ''}</span><em>${p.ready || p.done ? 'готов' : 'калибруется…'}</em></li>`).join('')}
+        ${players.map((p) => `<li><span>${esc(p.name)}${p.id === self ? t('waiting.you') : ''}</span><em>${t(p.ready || p.done ? 'waiting.ready' : 'waiting.calibrating')}</em></li>`).join('')}
       </ul>
     </div>
   </section>`;
@@ -316,12 +320,12 @@ function waitingHtml(): string {
 
 function warmupHtml(step: number, done: boolean, skipped: boolean): string {
   const s = WARMUP[step];
-  const title = skipped ? 'Пропустим пока' : done ? 'Отлично!' : s.title;
-  const text = skipped ? 'Поза не совпала. В песне подсказки внизу помогут.' : done ? 'Поза совпала.' : s.text;
+  const title = t(skipped ? 'warmup.skipTitle' : done ? 'warmup.doneTitle' : `${s.text}.title`);
+  const text = t(skipped ? 'warmup.skipText' : done ? 'warmup.doneText' : `${s.text}.text`);
   return `
   <section class="screen side">
     <div class="panel ${skipped ? 'panel-skipped' : done ? 'panel-done' : ''}">
-      <p class="chip">Разминка · ${step + 1} из ${WARMUP.length}</p>
+      <p class="chip">${t('warmup.chip', { n: step + 1, total: WARMUP.length })}</p>
       <div class="dots">${WARMUP.map((_, i) => `<i class="${i < step || (i === step && done) ? 'on' : ''}"></i>`).join('')}</div>
       <span class="tutorial-icon">${pictogramSvg(MOVES[s.move], { outline: true })}</span>
       <h2>${title}</h2>
@@ -335,7 +339,7 @@ function warmupHtml(step: number, done: boolean, skipped: boolean): string {
 const countdownHtml = (n: number, title: string) => `
   <section class="screen center countdown">
     <div class="count" id="count">${n}</div>
-    <p class="muted" id="count-text">Песня «${esc(title)}». Повторяй за тренером!</p>
+    <p class="muted" id="count-text">${esc(t('countdown.text', { title }))}</p>
   </section>`;
 
 function resultsHtml(r: RoundResult, m: ScreenModel): string {
@@ -343,35 +347,35 @@ function resultsHtml(r: RoundResult, m: ScreenModel): string {
   return `
   <section class="screen center over">
     <div class="over-card">
-      <button id="results-menu" class="menu-x" type="button" aria-label="В главное меню" title="В главное меню">×</button>
-      <p class="chip ${r.place === 0 ? 'chip-record' : ''}">${r.place === 0 ? 'Новый рекорд!' : 'Танец окончен'} · ${esc(r.songTitle)}</p>
+      <button id="results-menu" class="menu-x" type="button" aria-label="${t('menu')}" title="${t('menu')}">×</button>
+      <p class="chip ${r.place === 0 ? 'chip-record' : ''}">${t(r.place === 0 ? 'results.record' : 'results.over')} · ${esc(r.songTitle)}</p>
       ${starRow(r.stars)}
       <div class="big-score">${r.points}</div>
       <ul class="stats">
-        ${ratings.map((k) => `<li class="rating-${k}"><strong>${r.counts[k]}</strong><span>${RATING_NAMES[k]}</span></li>`).join('')}
-        <li><strong>×${r.maxCombo}</strong><span>лучшее комбо</span></li>
+        ${ratings.map((k) => `<li class="rating-${k}"><strong>${r.counts[k]}</strong><span>${ratingName(k)}</span></li>`).join('')}
+        <li><strong>×${r.maxCombo}</strong><span>${t('results.combo')}</span></li>
       </ul>
       <div class="over-columns">
         <div>
-          <h3>Точность по частям тела</h3>
+          <h3>${t('results.accuracy')}</h3>
           <ul class="accuracy">
             ${r.accuracy.slice(0, 4).map((a) => `<li><span>${a.name}</span><b style="--p:${a.pct / 100}"><i></i></b><em>${a.pct}%</em></li>`).join('')}
           </ul>
-          <h3>Что подтянуть</h3>
+          <h3>${t('results.improve')}</h3>
           ${r.advice.length
             ? `<ol class="advice">${r.advice.map((a) => `<li>${esc(a)}</li>`).join('')}</ol>`
-            : '<p class="muted">Ошибок почти не было. Чистый танец!</p>'}
+            : `<p class="muted">${t('results.clean')}</p>`}
         </div>
         <div>
-          <h3>Рекорды «${esc(r.songTitle)}»</h3>
+          <h3>${esc(t('lobby.records', { title: r.songTitle }))}</h3>
           ${boardHtml(r.board, r.entry)}
         </div>
       </div>
       ${podiumHtml()}
       <div class="restart" id="restart">
         ${m.inRoom ? '' : `<p class="song-switch">
-          <span>← Наклонись влево: «${esc(m.prev.song.title)}»</span>
-          <span>Наклонись вправо: «${esc(m.next.song.title)}» →</span>
+          <span>${esc(t('results.leanLeft', { title: m.prev.title }))}</span>
+          <span>${esc(t('results.leanRight', { title: m.next.title }))}</span>
         </p>`}
         <p id="restart-text">${esc(restartText(m))}</p>
       </div>
@@ -381,7 +385,7 @@ function resultsHtml(r: RoundResult, m: ScreenModel): string {
 
 const restartText = (m: ScreenModel) => {
   const left = Math.ceil(RESTART_LOCK_S - m.flow.t);
-  return left > 0 ? `Можно начать через ${left} с` : `Подними руку над головой, чтобы станцевать «${m.selected.song.title}»`;
+  return left > 0 ? t('results.wait', { s: left }) : t('results.raise', { title: m.selected.title });
 };
 
 /** Renders the overlay for the current phase. Rebuilds DOM only when the phase changes. */
@@ -398,6 +402,8 @@ export class Screens {
       if (!(target instanceof HTMLElement)) return;
       const btn = target.closest('button');
       const id = btn?.id ?? target.id;
+      const langBtn = target.closest<HTMLElement>('[data-lang]');
+      if (langBtn && isLang(langBtn.dataset.lang)) { setLang(langBtn.dataset.lang); return; }
       if (id === 'start-btn' || id === 'retry-btn') { actions.start(); return; }
       if (id === 'results-menu' || id === 'lobby-menu' || id === 'loading-cancel' || id === 'error-menu') { actions.menu(); return; }
       if (id === 'lobby-save-name') { this.saveName(); return; }
@@ -501,6 +507,8 @@ export class Screens {
     } else {
       key = p.kind;
     }
+    // A language switch redraws whatever screen is up.
+    key = `${lang()}:${key}`;
     if (key !== this.key) {
       this.key = key;
       // A lobby update (someone joins, renames) mustn't wipe what the player is typing.
@@ -523,8 +531,8 @@ export class Screens {
         const text = byId('load-text');
         if (text) {
           text.textContent = m.loadProgress < 1
-            ? `Модель распознавания: ${Math.round(m.loadProgress * 100)}%. Разреши доступ к камере, если браузер спросит.`
-            : 'Запускаю нейросеть. Это займёт пару секунд.';
+            ? t('loading.progress', { pct: Math.round(m.loadProgress * 100) })
+            : t('loading.starting');
         }
         break;
       }
@@ -539,7 +547,7 @@ export class Screens {
         const warn = byId('step-warn');
         if (warn) {
           warn.textContent = p.doneAt === null && m.flow.t >= STEP_WARN_S
-            ? `Не получается? Через ${Math.ceil(STEP_TIMEOUT_S - m.flow.t)} с перейдём дальше.`
+            ? t('warmup.warn', { s: Math.ceil(STEP_TIMEOUT_S - m.flow.t) })
             : '';
         }
         break;
@@ -548,7 +556,7 @@ export class Screens {
         const el = byId('count');
         const n = String(countdownLeft(m.flow));
         const text = byId('count-text');
-        if (text && m.flow.t >= COUNTDOWN_S && !m.songReady) text.textContent = 'Готовлю музыку…';
+        if (text && m.flow.t >= COUNTDOWN_S && !m.songReady) text.textContent = t('countdown.music');
         if (el && el.textContent !== n) {
           el.textContent = n;
           el.classList.remove('pop');
@@ -581,7 +589,7 @@ export class Screens {
       case 'calibrating': return calibHtml(m.distance);
       case 'waiting': return waitingHtml();
       case 'warmup': return warmupHtml(p.step, p.doneAt !== null, p.skipped);
-      case 'countdown': return countdownHtml(countdownLeft(m.flow), m.selected.song.title);
+      case 'countdown': return countdownHtml(countdownLeft(m.flow), m.selected.title);
       case 'dancing': return '';
       case 'results': return m.result ? resultsHtml(m.result, m) : '';
       default: {

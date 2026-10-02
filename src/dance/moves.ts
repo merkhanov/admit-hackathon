@@ -1,3 +1,4 @@
+import { t } from '../i18n.ts';
 import type { Side } from '../pose/features.ts';
 
 /**
@@ -42,6 +43,9 @@ const CROSS = arm(-90, 75, true);
 const HEAD = arm(-150, 60);
 /** Fists in front of the chest, holding reins. */
 const REINS = arm(-50, 50, true);
+
+/** A move's name in the current language. */
+export const moveName = (id: MoveId): string => t(`move.${id}`);
 
 export const MOVES: Record<MoveId, MoveTarget> = {
   up: { name: 'Руки вверх', arms: { L: arm(180), R: arm(180) }, tilt: 0, squat: false },

@@ -1,6 +1,7 @@
-import { maxPoints, RATING_NAMES, STAR_THRESHOLDS, stars, type DanceState, type Rating } from '../dance/dance.ts';
+import { maxPoints, ratingName, STAR_THRESHOLDS, stars, type DanceState, type Rating } from '../dance/dance.ts';
 import { MOVES } from '../dance/moves.ts';
 import { beatTime, type Song } from '../dance/song.ts';
+import { t } from '../i18n.ts';
 import { pictogramSvg } from './pictogram.ts';
 
 export type Banner =
@@ -43,7 +44,7 @@ export class Hud {
     if (!state) return;
     this.score.textContent = String(state.points);
     this.combo.hidden = state.combo < 2;
-    this.combo.textContent = `Комбо ×${state.combo}`;
+    this.combo.textContent = t('hud.combo', { n: state.combo });
     // The gauge fills bottom to top; each star sits at the share of the maximum that lights it.
     this.starBar.style.setProperty('--p', String(Math.min(1, state.points / maxPoints(song))));
     const n = stars(state.points, song);
@@ -58,7 +59,7 @@ export class Hud {
   showVerdict(rating: Rating): void {
     this.verdict.hidden = false;
     this.verdict.dataset.rating = rating;
-    this.verdict.textContent = RATING_NAMES[rating];
+    this.verdict.textContent = ratingName(rating);
     this.verdict.classList.remove('pop');
     void this.verdict.offsetWidth;
     this.verdict.classList.add('pop');

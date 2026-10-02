@@ -1,3 +1,4 @@
+import { t } from '../i18n.ts';
 import { angleDiff, evaluate, type BodyAngles, type MoveEval, type PartId } from './judge.ts';
 import type { MoveId } from './moves.ts';
 import { poseAt } from './motion.ts';
@@ -6,7 +7,8 @@ import { INPUT_LAG_S, judgeWindow, type Song } from './song.ts';
 export type Rating = 'perfect' | 'good' | 'ok' | 'miss';
 
 export const RATING_POINTS: Record<Rating, number> = { perfect: 100, good: 70, ok: 40, miss: 0 };
-export const RATING_NAMES: Record<Rating, string> = { perfect: 'Идеально!', good: 'Хорошо', ok: 'Неплохо', miss: 'Мимо' };
+/** A rating's word in the current language. */
+export const ratingName = (r: Rating): string => t(`rating.${r}`);
 
 export function rate(score: number): Rating {
   if (score >= 0.85) return 'perfect';
@@ -96,7 +98,6 @@ function followScore(scores: readonly number[]): number {
   return kept.reduce((sum, v) => sum + v, 0) / kept.length;
 }
 
-const STILL_HINT = 'Не замирай в позе: двигайся вместе с тренером на каждый бит';
 
 function finalize(s: DanceState, song: Song): Verdict {
   const step = song.steps[s.index];
@@ -120,9 +121,9 @@ function finalize(s: DanceState, song: Song): Verdict {
   let part: PartId | null = null;
   if (rating !== 'perfect') {
     // Standing still is the thing to fix unless a part was clearly wrong; out of frame comes first.
-    if (!best) hint = 'Не видно тебя в кадре: встань так, чтобы камера видела голову, плечи и руки';
-    else if (still && (!worst || worst.score > 0.3)) hint = STILL_HINT;
-    else { hint = worst?.hint ?? STILL_HINT; part = worst?.part ?? null; }
+    if (!best) hint = t('hint.unseen');
+    else if (still && (!worst || worst.score > 0.3)) hint = t('hint.still');
+    else { hint = worst?.hint ?? t('hint.still'); part = worst?.part ?? null; }
   }
   const verdict: Verdict = { index: s.index, move: step.move, rating, score, hint, part };
   s.index++;

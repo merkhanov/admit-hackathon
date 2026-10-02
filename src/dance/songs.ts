@@ -1,6 +1,7 @@
 import type { MoveId } from './moves.ts';
 import { buildMocapSong } from './mocap.ts';
 import { SAMBA } from './mocap/samba.ts';
+import { tryT } from '../i18n.ts';
 import { buildSong, type Song } from './song.ts';
 
 /** What the song picker says about a song. */
@@ -59,50 +60,24 @@ const TROLL_END: Phrase = ['up', 'vee', 'up', 'vee', 'wings', 'squat', 'wings', 
 const ZHORGA_A: Phrase = ['rider', 'whipL', 'rider', 'whipR', 'hips', 'leanL', 'hips', 'leanR'];
 const ZHORGA_B: Phrase = ['whipL', 'whipR', 'whipL', 'whipR', 'wings', 'rider', 'vee', 'rider'];
 
+/** A built-in song's title in the current language. Song files keep their own name. */
+export const songTitle = (song: Song): string => tryT(`song.${song.id}.title`) ?? song.title;
+
+/** The picker's texts come from the dictionary (song.<id>.credit and so on), so they follow the language. */
+function info(song: Song): SongInfo {
+  const text = (field: string) => tryT(`song.${song.id}.${field}`) ?? '';
+  return { song, get credit() { return text('credit'); }, get dances() { return text('dances'); }, get coach() { return text('coach'); } };
+}
+
 export const SONGS: readonly SongInfo[] = [
-  {
-    song: buildSong('neon', 'Neon Steps', 112, repeat(NEON_A, NEON_B, NEON_C, NEON_A, NEON_B, NEON_C, NEON_END)),
-    credit: 'Своя песня · электропоп',
-    dances: 'Базовые движения: самолёт, диско, бицепсы, наклоны',
-    coach: 'Звезда сцены',
-  },
-  {
-    song: buildSong('party', 'Танцпол', 120, repeat(YMCA, MACARENA, FLOSS_DAB, YMCA, MACARENA, FLOSS_DAB, PARTY_END)),
-    credit: 'Своя песня · диско',
-    dances: 'YMCA, макарена, флосс и дэб',
-    coach: 'Диджей',
-  },
-  {
-    song: buildSong('korobeiniki', 'Коробейники', 124, repeat(KORO_A, KORO_A, KORO_B, KORO_A)),
-    credit: 'Русская народная песня',
-    dances: 'Русский пляс: руки в боки, платочек, присядка',
-    coach: 'Коробейник в папахе',
-  },
-  {
-    song: buildSong('cancan', 'Канкан', 136, repeat(CANCAN_A, CANCAN_B, CANCAN_A, CANCAN_B)),
-    credit: 'Жак Оффенбах, 1858',
-    dances: 'Канкан из парижского кабаре',
-    coach: 'Танцовщица с бантом',
-  },
-  {
-    song: buildSong('troll', 'В пещере горного короля', 128, repeat(TROLL_A, TROLL_B, TROLL_A, TROLL_B, TROLL_A, TROLL_END)),
-    credit: 'Эдвард Григ, 1875',
-    dances: 'Танец троллей: крадёмся и показываем силу',
-    coach: 'Горный король в короне',
-  },
-  {
-    song: buildSong('zhorga', 'Кара жорга', 112, repeat(ZHORGA_A, ZHORGA_A, ZHORGA_B, ZHORGA_A, ZHORGA_B, ZHORGA_A)),
-    credit: 'Казахский народный танец · мелодия написана для игры',
-    dances: 'Всадник, камча, руки в боки',
-    coach: 'Джигит в калпаке',
-  },
-  {
-    // Danced to a recording of a real dancer, at the tempo it was recorded, so her steps land on the music.
-    song: buildMocapSong('samba', 'Самба', 60 / SAMBA.beat, SAMBA, 48),
-    credit: 'Своя мелодия · танец записан с живой танцовщицы',
-    dances: 'Настоящая самба: движения всего тела записаны с человека',
-    coach: 'Танцовщица',
-  },
+  info(buildSong('neon', 'Neon Steps', 112, repeat(NEON_A, NEON_B, NEON_C, NEON_A, NEON_B, NEON_C, NEON_END))),
+  info(buildSong('party', 'Танцпол', 120, repeat(YMCA, MACARENA, FLOSS_DAB, YMCA, MACARENA, FLOSS_DAB, PARTY_END))),
+  info(buildSong('korobeiniki', 'Коробейники', 124, repeat(KORO_A, KORO_A, KORO_B, KORO_A))),
+  info(buildSong('cancan', 'Канкан', 136, repeat(CANCAN_A, CANCAN_B, CANCAN_A, CANCAN_B))),
+  info(buildSong('troll', 'В пещере горного короля', 128, repeat(TROLL_A, TROLL_B, TROLL_A, TROLL_B, TROLL_A, TROLL_END))),
+  info(buildSong('zhorga', 'Кара жорга', 112, repeat(ZHORGA_A, ZHORGA_A, ZHORGA_B, ZHORGA_A, ZHORGA_B, ZHORGA_A))),
+  // Danced to a recording of a real dancer, at the tempo it was recorded, so her steps land on the music.
+  info(buildMocapSong('samba', 'Самба', 60 / SAMBA.beat, SAMBA, 48)),
 ];
 
 export const DEFAULT_SONG = SONGS[0];

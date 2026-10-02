@@ -698,3 +698,28 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   .crew-pop.show, .crew-pop.miss.show { animation: crew-pop 1.1s linear both; }
   #scoreboard .sb-row.missed { animation: none; }
 }
+
+/* Language switcher: three pills on the intro and lobby cards. Clicks are allowed there, before the camera starts. */
+.lang-switch {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin: 0 0 8px;
+  pointer-events: auto;
+}
+.lobby-card .lang-switch { margin-right: 52px; } /* clear of the × button */
+.lang-switch button {
+  min-width: 48px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 2px solid transparent;
+  border-radius: var(--radius-pill);
+  background: var(--lavender-mist);
+  color: var(--ink-soft);
+  font: 800 0.9rem/1 var(--font);
+  cursor: pointer;
+  transition: background var(--fast) var(--ease-out), color var(--fast) var(--ease-out);
+}
+.lang-switch button:hover { color: var(--ink); }
+.lang-switch button[aria-pressed="true"] { background: var(--grape); color: var(--white); }
+.lang-switch button:focus-visible { outline: 3px solid var(--grape); outline-offset: 2px; }

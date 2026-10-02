@@ -7,11 +7,13 @@ import { SongPlayer } from './audio/music.ts';
 import { Sfx } from './audio/sfx.ts';
 import { newDance, stars, stepDance, type DanceState, type Verdict } from './dance/dance.ts';
 import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
-import { MOVES, type MoveTarget } from './dance/moves.ts';
+import { MOVES, moveName, type MoveTarget } from './dance/moves.ts';
 import { songClipSeconds } from './dance/mocap.ts';
 import { poseAt } from './dance/motion.ts';
 import { beatLength, songDuration } from './dance/song.ts';
-import { DEFAULT_SONG, songInfo, type SongId } from './dance/songs.ts';
+import { DEFAULT_SONG, songInfo, songTitle, type SongId } from './dance/songs.ts';
+import { detectLang, onLangChange, savedLang, setLang, t } from './i18n.ts';
+import { applyPageText } from './ui/lang.ts';
 import { CameraError, downloadProgress, preloadRecognition, startCamera, type PoseSource } from './pose/camera.ts';
 import { startDemoSource } from './pose/demoSource.ts';
 import { distanceProblem } from './pose/gestures.ts';
@@ -30,6 +32,11 @@ import { PeerJSTransport } from './multiplayer/peerjs.ts';
 import { WebRTCTransport } from './multiplayer/webrtc.ts';
 import { PoseView } from './ui/pip.ts';
 import { Screens, type RoundResult, type SongCard } from './ui/screens.ts';
+
+// The language comes first: every text below is built in it.
+setLang(detectLang(savedLang(), navigator.languages?.length ? navigator.languages : [navigator.language]));
+applyPageText();
+onLangChange(applyPageText);
 
 /** How long a move's verdict and its correction stay on screen. */
 const VERDICT_S = 1.8;
@@ -70,7 +77,7 @@ const params = new URLSearchParams(location.search);
  */
 const roomParam = params.get('room');
 const mpSelfId = makePlayerId();
-const mpName = loadPlayerName() ?? 'Игрок';
+const mpName = loadPlayerName() ?? t('player.default');
 const mpTransport = params.get('signal') === 'local'
   ? new WebRTCTransport(mpSelfId)
   : new PeerJSTransport();
@@ -317,7 +324,7 @@ function finishRound(): void {
       }, 4000);
     }
   }
-  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, song), at: new Date().toISOString(), name: loadPlayerName() ?? 'Игрок' };
+  const entry: ScoreEntry = { score: d.points, stars: stars(d.points, song), at: new Date().toISOString(), name: loadPlayerName() ?? t('player.default') };
   let board: ScoreEntry[] = [entry];
   let place = 0;
   try {
@@ -329,7 +336,7 @@ function finishRound(): void {
     // Storage can be unavailable (private mode). The result still shows.
   }
   result = {
-    songTitle: song.title,
+    songTitle: songTitle(song),
     points: d.points, stars: entry.stars, counts: d.counts, maxCombo: d.maxCombo,
     accuracy: partAccuracy(d), advice: adviceLines(mistakes), place, board, entry,
   };
@@ -341,26 +348,26 @@ function bannerFor(): Banner | null {
   if (!lastOut || kind === 'intro' || kind === 'lobby' || kind === 'loading' || kind === 'error') return null;
   const hints = lastOut.hints;
   const frame = hints.find((h) => h.kind === 'frame');
-  if (frame) return { tone: 'frame', label: 'Поправь кадр', text: frame.text };
+  if (frame) return { tone: 'frame', label: t('banner.frame'), text: frame.text };
   if (kind === 'calibrating') {
     const c = hints.find((h) => h.kind === 'calib');
-    return c && c.kind === 'calib' ? { tone: 'calib', label: 'Калибровка', text: c.text, progress: c.progress } : null;
+    return c && c.kind === 'calib' ? { tone: 'calib', label: t('banner.calib'), text: c.text, progress: c.progress } : null;
   }
   if (kind === 'dancing' && verdict && clock < verdict.until) {
     const v = verdict.v;
     // A recorded dance's steps have no names of their own: the nearest built-in move would mislabel them.
-    if (!v.hint) return { tone: 'good', label: 'Идеально', text: playing.song.mocap ? 'Точно как у танцовщицы!' : `${MOVES[v.move].name}: точно как у тренера!` };
+    if (!v.hint) return { tone: 'good', label: t('banner.perfect'), text: playing.song.mocap ? t('banner.mocapPerfect') : t('banner.movePerfect', { move: moveName(v.move) }) };
     return v.rating === 'miss'
-      ? { tone: 'miss', label: 'Мимо', text: v.hint }
-      : { tone: 'fix', label: 'Почти', text: v.hint, progress: v.score };
+      ? { tone: 'miss', label: t('banner.miss'), text: v.hint }
+      : { tone: 'fix', label: t('banner.almost'), text: v.hint, progress: v.score };
   }
   if (kind === 'warmup' && liveMatch?.worst && clock - warmupMissSince > WARMUP_HINT_AFTER_S) {
-    return { tone: 'fix', label: 'Поправь', text: liveMatch.worst.hint, progress: liveMatch.score };
+    return { tone: 'fix', label: t('banner.fix'), text: liveMatch.worst.hint, progress: liveMatch.score };
   }
   if (kind === 'results') {
     // The hand-up gesture's own near-miss hint: "raise your hand higher to start".
     const fix = hints.find((h) => h.kind === 'fix');
-    if (fix && fix.kind === 'fix') return { tone: 'fix', label: 'Почти', text: fix.text, progress: fix.p };
+    if (fix && fix.kind === 'fix') return { tone: 'fix', label: t('banner.almost'), text: fix.text, progress: fix.p };
   }
   return null;
 }
@@ -481,8 +488,11 @@ function frame(now: number, dt: number): void {
   });
 }
 
-function card(t: Track): SongCard {
-  return { key: t.key, song: t.song, credit: t.credit, dances: t.dances, coach: t.coach, warning: t.warning };
+function card(track: Track): SongCard {
+  return {
+    key: track.key, song: track.song, title: songTitle(track.song),
+    credit: track.credit, dances: track.dances, coach: track.coach, warning: track.warning,
+  };
 }
 
 let prev = performance.now();

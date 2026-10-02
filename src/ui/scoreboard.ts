@@ -1,3 +1,4 @@
+import { t } from '../i18n.ts';
 import type { MPPlayer } from '../multiplayer/types.ts';
 
 function escapeHtml(s: string): string {
@@ -64,7 +65,7 @@ export class Scoreboard {
         if (p.id === leaderId) cls.push('leader');
         const missed = (this.missedUntil.get(p.id) ?? 0) > now;
         if (missed) cls.push('missed');
-        return `<div class="${cls.join(' ')}">${escapeHtml(p.name)} ${missed ? '<span class="sb-note">ошибся!</span>' : `${p.score} ×${p.combo}`}</div>`;
+        return `<div class="${cls.join(' ')}">${escapeHtml(p.name)} ${missed ? `<span class="sb-note">${t('scoreboard.missed')}</span>` : `${p.score} ×${p.combo}`}</div>`;
       })
       .join('');
     if (html !== this.lastHtml) {

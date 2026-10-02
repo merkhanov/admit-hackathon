@@ -12,15 +12,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,600;0,800;0,900;1,900&display=swap" rel="stylesheet" />
   </head>
   <body>
-    <canvas id="scene" aria-label="Сцена с танцором"></canvas>
+    <canvas id="scene" aria-label="Сцена с танцором" data-i18n-aria="scene.aria"></canvas>
 
     <header class="hud" id="hud" hidden>
       <div class="score-chip">
-        <span class="score-label">Очки</span>
+        <span class="score-label" data-i18n="hud.score">Очки</span>
         <strong id="hud-score">0</strong>
         <span class="combo" id="hud-combo" hidden></span>
       </div>
-      <div class="gauge" aria-label="Звёзды">
+      <div class="gauge" aria-label="Звёзды" data-i18n-aria="hud.stars">
         <div class="gauge-track"><i id="hud-star-bar"></i></div>
         <div class="gauge-stars" id="hud-stars"></div>
       </div>
@@ -35,7 +35,7 @@
 
     <aside class="pip" id="pip" hidden>
       <canvas id="pose"></canvas>
-      <span class="pip-label">Так тебя видит камера</span>
+      <span class="pip-label" data-i18n="pip.label">Так тебя видит камера</span>
     </aside>
 
     <div class="banner" id="banner" hidden role="status" aria-live="polite">

@@ -11,6 +11,7 @@ import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
 import { CREW_LOOKS } from './outfits.ts';
 import { THEMES, type StageTheme } from './themes.ts';
+import { t } from '../i18n.ts';
 
 const FLOOR_COLS = 11, FLOOR_ROWS = 9, TILE = 1.1;
 const MAX_CONFETTI = 260;
@@ -329,11 +330,11 @@ export class Stage implements StageView {
     if (rating === 'miss') {
       a.flinch = 1;
       a.shine = 0;
-      this.popUp(a, 'Мимо!', 'miss');
+      this.popUp(a, t('popup.miss'), 'miss');
     } else if (rating === 'perfect') {
       a.shine = 1;
       a.flinch = 0;
-      this.popUp(a, 'Идеально!', 'perfect');
+      this.popUp(a, t('rating.perfect'), 'perfect');
       const { x, z } = CREW_SLOTS[a.slot];
       this.burst(16, this.theme.floor, new Vector3(x, 1.7, z + 0.3), 0.5);
     }

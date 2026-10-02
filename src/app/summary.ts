@@ -1,5 +1,6 @@
 import type { DanceState, Verdict } from '../dance/dance.ts';
-import { PART_NAMES, type PartId } from '../dance/judge.ts';
+import { t } from '../i18n.ts';
+import { PART_IDS, partName, type PartId } from '../dance/judge.ts';
 
 /** Per body part: how many moves it spoiled, and the latest correction for it. */
 export type MistakeLog = Partial<Record<PartId, { n: number; hint: string }>>;
@@ -10,11 +11,6 @@ export function logVerdict(log: MistakeLog, v: Verdict): MistakeLog {
   return { ...log, [v.part]: { n: (prev?.n ?? 0) + 1, hint: v.hint } };
 }
 
-function times(n: number): string {
-  const d = n % 10, dd = n % 100;
-  return d >= 2 && d <= 4 && (dd < 12 || dd > 14) ? 'раза' : 'раз';
-}
-
 /** The three parts that cost the most moves, each with a concrete example of the fix. */
 export function adviceLines(log: MistakeLog): string[] {
   const entries: { part: PartId; n: number; hint: string }[] = [];
@@ -22,7 +18,7 @@ export function adviceLines(log: MistakeLog): string[] {
   return entries
     .sort((a, b) => b.n - a.n)
     .slice(0, 3)
-    .map((e) => `${PART_NAMES[e.part]}: ${e.n} ${times(e.n)} мимо цели. Последняя подсказка: «${e.hint}».`);
+    .map((e) => t('advice', { part: partName(e.part), n: e.n, hint: e.hint }));
 }
 
 export interface PartAccuracy {
@@ -36,11 +32,11 @@ export interface PartAccuracy {
 export function partAccuracy(state: DanceState): PartAccuracy[] {
   const out: PartAccuracy[] = [];
   for (const [part, acc] of Object.entries(state.parts)) {
-    if (acc && acc.n > 0 && isPart(part)) out.push({ part, name: PART_NAMES[part], pct: Math.round((acc.sum / acc.n) * 100) });
+    if (acc && acc.n > 0 && isPart(part)) out.push({ part, name: partName(part), pct: Math.round((acc.sum / acc.n) * 100) });
   }
   return out.sort((a, b) => a.pct - b.pct);
 }
 
 function isPart(s: string): s is PartId {
-  return s in PART_NAMES;
+  return (PART_IDS as readonly string[]).includes(s);
 }

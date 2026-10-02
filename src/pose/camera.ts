@@ -1,4 +1,5 @@
 import { PoseLandmarker } from '@mediapipe/tasks-vision';
+import { t } from '../i18n.ts';
 import type { Pose } from './landmarks.ts';
 
 // Must match the @mediapipe/tasks-vision version in package.json: the JS and the wasm are a pair.
@@ -71,14 +72,14 @@ function explain(err: unknown): string {
   const name = err instanceof DOMException ? err.name : '';
   switch (name) {
     case 'NotAllowedError':
-      return 'Доступ к камере запрещён. Нажми на значок камеры или замка в адресной строке, разреши камеру и обнови страницу.';
+      return t('camera.denied');
     case 'NotFoundError':
     case 'OverconstrainedError':
-      return 'Камера не найдена. Подключи веб-камеру и обнови страницу.';
+      return t('camera.notFound');
     case 'NotReadableError':
-      return 'Камера занята другой программой (Zoom, Telegram, другая вкладка). Закрой её и попробуй снова.';
+      return t('camera.busy');
     default:
-      return `Не удалось запустить камеру: ${err instanceof Error ? err.message : String(err)}`;
+      return t('camera.failed', { msg: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -113,7 +114,7 @@ async function createLandmarker(): Promise<PoseLandmarker> {
 /** Asks for the camera, loads the pose model, and returns a source that reads one pose per video frame. */
 export async function startCamera(): Promise<PoseSource> {
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
-    throw new CameraError('Камера работает только по https или на localhost. Открой ссылку на деплой или запусти pnpm dev.');
+    throw new CameraError(t('camera.https'));
   }
   let stream: MediaStream;
   try {
@@ -136,7 +137,7 @@ export async function startCamera(): Promise<PoseSource> {
     landmarker = await createLandmarker();
   } catch (err) {
     stream.getTracks().forEach((t) => t.stop());
-    throw new CameraError('Не удалось загрузить модель распознавания. Проверь интернет и попробуй снова.', err);
+    throw new CameraError(t('camera.model'), err);
   }
 
   let lastVideoTime = -1;

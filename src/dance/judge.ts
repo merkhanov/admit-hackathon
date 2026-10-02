@@ -1,12 +1,14 @@
 import type { Features, Side } from '../pose/features.ts';
 import type { Calibration } from '../pose/gestures.ts';
+import { t } from '../i18n.ts';
 import type { MoveTarget } from './moves.ts';
 
 export type PartId = 'armL' | 'armR' | 'elbowL' | 'elbowR' | 'tilt' | 'squat';
 
-export const PART_NAMES: Record<PartId, string> = {
-  armL: 'Левая рука', armR: 'Правая рука', elbowL: 'Левый локоть', elbowR: 'Правый локоть', tilt: 'Наклон корпуса', squat: 'Присед',
-};
+export const PART_IDS: readonly PartId[] = ['armL', 'armR', 'elbowL', 'elbowR', 'tilt', 'squat'];
+
+/** A body part's name in the current language. */
+export const partName = (part: PartId): string => t(`part.${part}`);
 
 export interface ArmAngles {
   ok: boolean;
@@ -40,9 +42,6 @@ export interface MoveEval {
 }
 
 const SIDES: readonly Side[] = ['L', 'R'];
-const ARM: Record<Side, string> = { L: 'Левая', R: 'Правая' };
-const ARM_ACC: Record<Side, string> = { L: 'левую', R: 'правую' };
-const ELBOW: Record<Side, string> = { L: 'левый', R: 'правый' };
 const PART_ARM: Record<Side, PartId> = { L: 'armL', R: 'armR' };
 const PART_ELBOW: Record<Side, PartId> = { L: 'elbowL', R: 'elbowR' };
 
@@ -82,28 +81,28 @@ function armPart(s: Side, target: number, arm: ArmAngles, targetElbow: number, r
   if (!arm.ok && arm.offBottom) {
     return Math.abs(target) <= DOWN_DEG
       ? { part: PART_ARM[s], score: 1, hint: '' }
-      : { part: PART_ARM[s], score: 0, hint: `${ARM[s]} рука ниже кадра: подними её, как у тренера` };
+      : { part: PART_ARM[s], score: 0, hint: t(`hint.armBelow.${s}`) };
   }
-  if (!arm.ok) return { part: PART_ARM[s], score: 0, hint: `Не вижу ${ARM_ACC[s]} руку: держи её в кадре` };
+  if (!arm.ok) return { part: PART_ARM[s], score: 0, hint: t(`hint.armLost.${s}`) };
   const err = Math.abs(angleDiff(arm.dir, target));
   // Speak in terms of the arc a person feels: across the body, out to the side, higher or lower.
-  let action: string;
-  if (Math.abs(target) <= DOWN_DEG) action = 'опусти вдоль тела';
-  else if (target < -120 && arm.dir > 90) action = 'сведи ближе к голове';
-  else if (target < -15 && arm.dir > 0) action = 'уведи через тело к другому боку';
-  else if (target > 15 && arm.dir < -15) action = 'отведи в сторону от тела';
-  else action = Math.abs(target) > Math.abs(arm.dir) ? 'подними выше' : 'опусти ниже';
+  let action: 'down' | 'head' | 'across' | 'out' | 'up' | 'lower';
+  if (Math.abs(target) <= DOWN_DEG) action = 'down';
+  else if (target < -120 && arm.dir > 90) action = 'head';
+  else if (target < -15 && arm.dir > 0) action = 'across';
+  else if (target > 15 && arm.dir < -15) action = 'out';
+  else action = Math.abs(target) > Math.abs(arm.dir) ? 'up' : 'lower';
   const slack = recorded ? foldSlack(targetElbow) : 1;
   const score = clamp01(1 - (err - ARM_FULL_DEG * slack) / ((ARM_ZERO_DEG - ARM_FULL_DEG) * slack));
-  return { part: PART_ARM[s], score, hint: `${ARM[s]} рука: ${action} на ${Math.round(err)}°` };
+  return { part: PART_ARM[s], score, hint: t(`hint.arm.${s}`, { action: t(`action.${action}`), deg: Math.round(err) }) };
 }
 
 function elbowPart(s: Side, target: number, arm: ArmAngles): PartScore | null {
   if (!arm.ok) return null;
   const err = Math.abs(arm.elbow - target);
   const hint = arm.elbow < target
-    ? `Выпрями ${ELBOW[s]} локоть: сейчас ${Math.round(arm.elbow)}°`
-    : `Согни ${ELBOW[s]} локоть: сейчас ${Math.round(arm.elbow)}°, нужно около ${Math.round(target)}°`;
+    ? t(`hint.straighten.${s}`, { now: Math.round(arm.elbow) })
+    : t(`hint.bend.${s}`, { now: Math.round(arm.elbow), target: Math.round(target) });
   return { part: PART_ELBOW[s], score: clamp01(1 - (err - 30) / 50), hint };
 }
 
@@ -111,17 +110,17 @@ function tiltPart(target: number, tilt: number): PartScore {
   const err = Math.abs(tilt - target);
   if (target === 0) {
     // Generous: raising one arm hikes that shoulder by itself.
-    return { part: 'tilt', score: clamp01(1 - (err - 15) / 20), hint: `Выпрямись: плечи наклонены ${tilt > 0 ? 'влево' : 'вправо'} на ${Math.round(err)}°` };
+    return { part: 'tilt', score: clamp01(1 - (err - 15) / 20), hint: t(tilt > 0 ? 'hint.upright.left' : 'hint.upright.right', { deg: Math.round(err) }) };
   }
   const need = target - tilt;
-  const side = need > 0 ? 'влево' : 'вправо';
-  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: `Наклонись ${side} сильнее: сейчас ${Math.round(Math.abs(tilt))}°, нужно ${Math.round(Math.abs(target))}°` };
+  const key = need > 0 ? 'hint.lean.left' : 'hint.lean.right';
+  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: t(key, { now: Math.round(Math.abs(tilt)), target: Math.round(Math.abs(target)) }) };
 }
 
 function squatPart(squat: boolean, drop: number): PartScore {
   return squat
-    ? { part: 'squat', score: clamp01(drop / 0.35), hint: 'Присядь ниже: плечи должны опуститься' }
-    : { part: 'squat', score: 1 - clamp01((drop - 0.25) / 0.3), hint: 'Встань ровно, здесь приседать не нужно' };
+    ? { part: 'squat', score: clamp01(drop / 0.35), hint: t('hint.squatLower') }
+    : { part: 'squat', score: 1 - clamp01((drop - 0.25) / 0.3), hint: t('hint.standUp') };
 }
 
 /**

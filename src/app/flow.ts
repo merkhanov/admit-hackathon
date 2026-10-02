@@ -31,15 +31,15 @@ export type FlowCommand = 'recalibrate' | 'ready' | 'stepDone' | 'stepSkipped' |
 
 export interface WarmupStep {
   move: MoveId;
-  title: string;
-  text: string;
+  /** Title and text in the dictionary: warmup.<n>.title and warmup.<n>.text. */
+  text: 'warmup.0' | 'warmup.1' | 'warmup.2';
 }
 
 /** Three poses that teach the mirror rule before the music starts. */
 export const WARMUP: readonly WarmupStep[] = [
-  { move: 'wings', title: 'Разминка: самолёт', text: 'Разведи прямые руки в стороны, как тренер.' },
-  { move: 'leftUp', title: 'Танцуй как в зеркале', text: 'Тренер поднял руку на левой стороне экрана. Подними свою левую руку.' },
-  { move: 'up', title: 'Обе руки вверх', text: 'Вытяни обе руки над головой. Поехали!' },
+  { move: 'wings', text: 'warmup.0' },
+  { move: 'leftUp', text: 'warmup.1' },
+  { move: 'up', text: 'warmup.2' },
 ];
 
 /** A warm-up pose counts once held above this score for WARMUP_HOLD_S. */

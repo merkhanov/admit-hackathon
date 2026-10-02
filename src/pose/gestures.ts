@@ -1,3 +1,4 @@
+import { t } from '../i18n.ts';
 import type { Features, Side } from './features.ts';
 
 type Tracked = Extract<Features, { present: true }>;
@@ -36,7 +37,6 @@ export const HAND_UP = 1.0;
 const ARM_REACH = 1.6;
 
 const cm = (shoulderWidths: number) => Math.max(1, Math.round(shoulderWidths * CM_PER_SW));
-const ARM: Record<Side, string> = { L: 'левую', R: 'правую' };
 const SIDES: readonly Side[] = ['R', 'L'];
 
 function measureHandUp(f: Tracked): Measure {
@@ -45,7 +45,7 @@ function measureHandUp(f: Tracked): Measure {
     const a = f.arms[s];
     if (!a.ok || a.out > 0.9) continue;
     const p = a.raise / HAND_UP;
-    if (p > best.p) best = { p, hint: `Подними ${ARM[s]} руку выше головы, чтобы начать: не хватает ≈${cm(HAND_UP - a.raise)} см` };
+    if (p > best.p) best = { p, hint: t(`hint.raiseToStart.${s}`, { cm: cm(HAND_UP - a.raise) }) };
   }
   return best;
 }
@@ -75,9 +75,9 @@ export function distanceProblem(f: Features): 'close' | 'far' | null {
 }
 
 export function framingProblem(f: Features): string | null {
-  if (!f.present) return 'Не вижу тебя: встань перед камерой';
-  if (f.vis < 0.5) return 'Не видно головы и плеч: отодвинься или наклони камеру, чтобы верх тела попал в кадр';
-  if (f.sw > 0.8) return 'Слишком близко к камере: отодвинься, чтобы в кадр поместились поднятые руки';
-  if (f.sw < 0.08) return 'Слишком далеко: подойди ближе к камере';
+  if (!f.present) return t('frame.absent');
+  if (f.vis < 0.5) return t('frame.head');
+  if (f.sw > 0.8) return t('frame.close');
+  if (f.sw < 0.08) return t('frame.far');
   return null;
 }

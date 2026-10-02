@@ -1,3 +1,4 @@
+import { t as tr } from '../i18n.ts';
 import { features, type Features } from './features.ts';
 import { armsFitLimit, framingProblem, GESTURE_IDS, GESTURES, type Calibration, type GestureId } from './gestures.ts';
 import type { Landmark, Pose } from './landmarks.ts';
@@ -105,7 +106,7 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
       if (g.phase === 'active') g.lastExit = t;
       gestures[id] = { ...idle(), lastExit: g.lastExit };
     }
-    hints.push({ kind: 'frame', text: frame ?? 'Не вижу тебя: встань перед камерой' });
+    hints.push({ kind: 'frame', text: frame ?? tr('frame.absent') });
     const stage = state.stage.kind === 'calibrating' ? startCalibration() : state.stage;
     return out(stage);
   }
@@ -119,8 +120,8 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
         kind: 'calib',
         progress: 0,
         text: !fits
-          ? 'Отойди подальше: разведённые в стороны руки должны помещаться в кадр'
-          : !down ? 'Опусти руки: запоминаю исходную позу' : 'Выпрямись, не наклоняйся: запоминаю исходную позу',
+          ? tr('calib.stepBack')
+          : !down ? tr('calib.armsDown') : tr('calib.straight'),
       });
       return out(startCalibration());
     }
@@ -132,7 +133,7 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
       events.push('calibrated');
       return out({ kind: 'tracking', calib: { midY: next.sumY / next.n, sw: next.sumSw / next.n } });
     }
-    hints.push({ kind: 'calib', progress, text: `Стой ровно, руки вниз: калибровка ${Math.round(progress * 100)}%` });
+    hints.push({ kind: 'calib', progress, text: tr('calib.progress', { pct: Math.round(progress * 100) }) });
     return out(next);
   }
 

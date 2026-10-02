@@ -2,7 +2,8 @@ import { ARRANGEMENTS } from '../audio/arrangements.ts';
 import { detectBeat } from '../audio/beat.ts';
 import { renderSong, type PlayOptions } from '../audio/music.ts';
 import { songDuration, type Song } from '../dance/song.ts';
-import { CUSTOM_MAX_S, CUSTOM_MIN_S, customSong, SONGS } from '../dance/songs.ts';
+import { CUSTOM_MAX_S, CUSTOM_MIN_S, customSong, SONGS, type SongInfo } from '../dance/songs.ts';
+import { t } from '../i18n.ts';
 
 /** A song the player can pick: the dance, its music and what the picker says about it. */
 export interface Track {
@@ -32,9 +33,16 @@ const ANALYSE_S = 120;
 /** Below this, the beat of a song file is a guess. */
 const LOW_CONFIDENCE = 1.3;
 
-const BUILT_IN: readonly Track[] = SONGS.map((s) => ({
-  key: s.song.id, theme: s.song.id, song: s.song, credit: s.credit, dances: s.dances, coach: s.coach, play: {}, warning: null,
-}));
+/** A built-in song's track. Its texts are read when shown, so they follow the language. */
+const builtIn = (s: SongInfo): Track => ({
+  key: s.song.id, theme: s.song.id, song: s.song, play: {}, warning: null,
+  get credit() { return s.credit; }, get dances() { return s.dances; }, get coach() { return s.coach; },
+});
+
+const BUILT_IN: readonly Track[] = SONGS.map(builtIn);
+
+/** A song file's problem the player can act on, in their language. Other errors get the generic message. */
+class FileError extends Error {}
 
 function monoMix(buffer: AudioBuffer, seconds: number): Float32Array {
   const n = Math.min(buffer.length, Math.round(seconds * buffer.sampleRate));
@@ -131,12 +139,12 @@ export class Tracks {
    * The file never leaves the browser.
    */
   async loadFile(file: File): Promise<void> {
-    const name = file.name.replace(/\.[^.]+$/, '').slice(0, 48) || 'Моя песня';
+    const name = file.name.replace(/\.[^.]+$/, '').slice(0, 48) || t('file.defaultName');
     this.status = { kind: 'loading', name };
     this.onChange();
     try {
       const decoded = await new OfflineAudioContext(2, 1, 44100).decodeAudioData(await file.arrayBuffer());
-      if (decoded.duration < CUSTOM_MIN_S) throw new Error(`Песня слишком короткая: нужно хотя бы ${CUSTOM_MIN_S} секунд.`);
+      if (decoded.duration < CUSTOM_MIN_S) throw new FileError(t('file.short', { s: CUSTOM_MIN_S }));
       const grid = detectBeat(monoMix(decoded, ANALYSE_S), decoded.sampleRate);
       const song = customSong(name, grid.bpm, Math.min(decoded.duration - grid.firstBeat, CUSTOM_MAX_S));
       const length = songDuration(song);
@@ -144,11 +152,11 @@ export class Tracks {
         key: `custom:${name}`,
         theme: 'custom',
         song,
-        credit: `Твой файл · ${Math.round(song.bpm)} ударов в минуту`,
-        dances: 'Движения из всех песен игры',
-        coach: 'Диджей',
+        get credit() { return t('custom.credit', { bpm: Math.round(song.bpm) }); },
+        get dances() { return t('custom.dances'); },
+        get coach() { return t('custom.coach'); },
         play: { fadeAt: length - 2 },
-        warning: grid.confidence < LOW_CONFIDENCE ? 'Ритм нечёткий: движения могут не совпасть с музыкой. Лучше всего подходят песни с ровным битом.' : null,
+        get warning() { return grid.confidence < LOW_CONFIDENCE ? t('custom.warning') : null; },
       };
       // The kept audio starts on the first beat, which is song time 0.
       this.custom = { track, buffer: slice(decoded, grid.firstBeat, length + 1) };
@@ -156,9 +164,7 @@ export class Tracks {
       this.select(track.key);
     } catch (err) {
       console.warn('Song file failed', err);
-      const text = err instanceof Error && /[а-я]/i.test(err.message)
-        ? err.message
-        : 'Не получилось прочитать файл. Подойдут MP3, M4A, WAV или OGG.';
+      const text = err instanceof FileError ? err.message : t('file.unreadable');
       this.status = { kind: 'error', text };
     }
     this.onChange();
