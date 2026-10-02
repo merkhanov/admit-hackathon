@@ -423,14 +423,18 @@ export class Stage implements StageView {
     // Ease between the dance framing and the title screen's wider one.
     this.titleMix += ((frame.view === 'title' ? 1 : 0) - this.titleMix) * Math.min(1, dt * 4);
     const m = this.titleMix;
-    // Wide screens pull back so the coach fits between the name and the menu; tall phones keep her
-    // big and raise her into the empty middle of the screen instead.
-    const portrait = this.camera.aspect < 0.8;
-    // The menu has a fixed height in pixels, so short screens pull back further to keep her feet clear.
-    const short = Math.max(0, Math.min(1, (900 - window.innerHeight) / 300));
-    const back = portrait ? 0.3 : 1.9 + 2.7 * short, drop = portrait ? 0.85 : 0.3;
-    this.camera.position.set(j(), 1.5 + 0.25 * m + j(), 6.1 + back * m);
-    this.camera.lookAt(0, 1.2 - drop * m, 0);
+    // Wide screens: the menu sits on the right, so the camera slides right and the coach dances
+    // full height in the left part of the screen. Tall phones keep her big and raise her into the
+    // middle, between the name and the menu card.
+    const portrait = this.camera.aspect < 1;
+    // Taller portrait screens (tablets) see more of the stage, so the camera comes closer to keep her big.
+    const tall = Math.max(0, Math.min(1, (window.innerHeight - 700) / 500));
+    const back = portrait ? 0.3 - 1.6 * tall : -0.5, drop = portrait ? 0.85 - 0.3 * tall : 0.15;
+    const dist = 6.1 + back * m;
+    const halfWidth = dist * Math.tan((this.camera.fov * Math.PI) / 360) * this.camera.aspect;
+    const slide = portrait ? 0 : 0.36 * halfWidth * m;
+    this.camera.position.set(slide + j(), 1.5 + 0.25 * m + j(), dist);
+    this.camera.lookAt(slide, 1.2 - drop * m, 0);
 
     this.stepConfetti(dt);
     this.renderer.render(this.scene, this.camera);
