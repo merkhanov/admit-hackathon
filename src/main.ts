@@ -1,6 +1,7 @@
 import './style.css';
 import { cameraFailed, cameraReady, enterIntro, enterLobby, initFlow, startRequested, stepFlow, WARMUP, WARMUP_PASS, type Flow, type FlowCommand } from './app/flow.ts';
 import { loadLeaderboard, recordScore, type ScoreEntry } from './app/leaderboard.ts';
+import { buy, coinsFor, earn, loadWallet, saveWallet, toggleWear, wornLook, type Wallet } from './app/wallet.ts';
 import { adviceLines, logVerdict, partAccuracy, type MistakeLog } from './app/summary.ts';
 import { Tracks, type Track } from './app/tracks.ts';
 import { SongPlayer } from './audio/music.ts';
@@ -126,7 +127,31 @@ const screens = new Screens(screensRoot, {
     mp.selectSong(key);
   },
   file: (file) => void tracks.loadFile(file).then(() => selectSong(() => undefined)),
+  buy: (id) => {
+    const r = buy(wallet, id);
+    if (!r.ok) return;
+    setWallet(r.wallet);
+    sfx.play('record');
+  },
+  wear: (id) => {
+    setWallet(toggleWear(wallet, id));
+    sfx.play('tick');
+  },
 });
+
+/** Coins and clothes from the shop. What is worn goes on the coach and, in a room, on our avatar. */
+let wallet: Wallet = loadWallet();
+function setWallet(next: Wallet): void {
+  wallet = next;
+  saveWallet(wallet);
+  dressUp();
+}
+function dressUp(): void {
+  const look = wornLook(wallet);
+  stage.setLook(Object.keys(look).length > 0 ? look : null);
+  mp.setLook(look);
+}
+dressUp();
 
 // Start the ~17 MB model download and the music render right away, while the player reads the intro.
 if (!demo) preloadRecognition().catch(() => undefined);
@@ -173,7 +198,7 @@ function crewMembers(now: number): CrewMember[] {
     .filter((p) => p.id !== mp.self)
     .map((p) => {
       const latest = remotePoses.get(p.id);
-      return { id: p.id, name: p.name, score: p.score, pose: latest && now - latest.at < POSE_STALE_MS ? unpackPose(latest.pose) : null };
+      return { id: p.id, name: p.name, score: p.score, look: p.look, pose: latest && now - latest.at < POSE_STALE_MS ? unpackPose(latest.pose) : null };
     });
 }
 
@@ -335,10 +360,13 @@ function finishRound(): void {
   } catch {
     // Storage can be unavailable (private mode). The result still shows.
   }
+  // Every dance pays coins for the clothes shop.
+  const coins = coinsFor(d.counts, entry.stars);
+  setWallet(earn(wallet, coins));
   result = {
     songTitle: songTitle(song),
     points: d.points, stars: entry.stars, counts: d.counts, maxCombo: d.maxCombo,
-    accuracy: partAccuracy(d), advice: adviceLines(mistakes), place, board, entry,
+    accuracy: partAccuracy(d), advice: adviceLines(mistakes), place, board, entry, coins,
   };
   sfx.play(place === 0 ? 'record' : 'over');
 }
@@ -485,6 +513,7 @@ function frame(now: number, dt: number): void {
     songReady: tracks.buffer() !== null,
     board: boardOf,
     boardsVersion,
+    wallet,
   });
 }
 

@@ -1,5 +1,5 @@
 import { buildPodium, emptyState, stepSession } from './session.ts';
-import type { CompactPose, MPEvent, MPMessage, MultiplayerState, PodiumEntry, VerdictRating } from './types.ts';
+import type { CompactPose, MPEvent, MPMessage, MultiplayerState, PlayerLook, PodiumEntry, VerdictRating } from './types.ts';
 import type { MPTransport } from './transport.ts';
 import type { SongId } from '../dance/songs.ts';
 
@@ -17,6 +17,7 @@ export class MPManager {
   private transport: MPTransport;
   private selfId: string;
   private name: string;
+  private look: PlayerLook = {};
   private state: MultiplayerState = emptyState();
   private wantsHost = false;
   private hasSynced = false;
@@ -76,6 +77,12 @@ export class MPManager {
   setName(name: string): void {
     this.name = name;
     if (this.state.roomId) this.dispatch({ type: 'rename', playerId: this.selfId, name });
+  }
+
+  /** Our clothes from the shop; in a room every peer's copy of our avatar changes with them. */
+  setLook(look: PlayerLook): void {
+    this.look = look;
+    if (this.state.roomId) this.dispatch({ type: 'look', playerId: this.selfId, look });
   }
 
   /** We calibrated for the current song and wait for the others before the countdown. */
@@ -159,11 +166,11 @@ export class MPManager {
 
   private onConnected(): void {
     if (this.wantsHost) {
-      this.dispatch({ type: 'join', player: { id: this.selfId, name: this.name } });
+      this.dispatch({ type: 'join', player: { id: this.selfId, name: this.name, look: this.look } });
       this.state = { ...this.state, isHost: true };
     } else {
       // Guest: announce, but adopt the host's roster via `sync`.
-      this.transport.send({ type: 'join', player: { id: this.selfId, name: this.name } });
+      this.transport.send({ type: 'join', player: { id: this.selfId, name: this.name, look: this.look } });
       this.state = { ...this.state, isHost: false };
     }
     this.notifyChange();

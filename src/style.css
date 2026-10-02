@@ -907,3 +907,115 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   .title-bottom { gap: 8px; }
   .title-tips { gap: 6px; }
 }
+
+/* ---------- Clothes shop ---------- */
+.coin {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  margin-right: 6px;
+  vertical-align: -0.15em;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #fff7c2 0 18%, var(--sunshine) 40%, oklch(0.75 0.15 80) 100%);
+  box-shadow: inset 0 0 0 2px oklch(0.7 0.14 75);
+}
+.coin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--white);
+  color: var(--ink);
+  font: 900 0.95rem/1 var(--font);
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+  transition: transform var(--fast) var(--ease-out);
+}
+.coin-btn span { color: var(--grape); margin-left: 4px; }
+.coin-btn:hover { transform: translateY(-2px); }
+.coin-btn:focus-visible { outline: 3px solid var(--grape); outline-offset: 2px; }
+.title-shop { position: absolute; top: clamp(12px, 2.4vh, 24px); left: clamp(12px, 2.4vw, 28px); }
+.lobby-head .coin-btn { margin-top: 8px; background: var(--lavender-mist); box-shadow: none; }
+
+/* A panel on the right, so the coach in the middle can be seen trying the clothes on. */
+.shop {
+  position: absolute;
+  top: clamp(12px, 2.4vh, 24px);
+  right: clamp(12px, 2.4vw, 28px);
+  bottom: clamp(12px, 2.4vh, 24px);
+  width: min(400px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  padding: 18px 18px 12px;
+  border-radius: var(--radius-lg);
+  background: var(--white);
+  box-shadow: var(--shadow-card);
+  color: var(--ink);
+  text-align: left;
+  pointer-events: auto;
+  z-index: 2;
+  animation: shop-in 280ms var(--ease-out-expo) both;
+}
+@keyframes shop-in { from { opacity: 0; transform: translateX(24px); } }
+.shop-head { display: flex; align-items: center; gap: 10px; padding-right: 44px; }
+.shop-head h2 { font-size: 1.4rem; margin: 0; }
+.shop-head .menu-x { top: 10px; right: 10px; }
+.coin-pill { display: inline-flex; align-items: center; padding: 6px 12px; border-radius: var(--radius-pill); background: oklch(0.96 0.06 92); font: 900 0.95rem/1 var(--font); white-space: nowrap; }
+.shop-note { margin: 8px 0 4px; font-size: 0.85rem; color: var(--ink-soft); }
+.shop-body { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; margin: 0 -6px; padding: 0 6px 6px; }
+.shop-body h3 { margin: 14px 0 8px; font-size: 1rem; }
+.shop-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.shop-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 8px;
+  border-radius: var(--radius-md);
+  background: var(--lavender-mist);
+  border: 3px solid transparent;
+  text-align: center;
+}
+.shop-item.worn { border-color: var(--grape); background: var(--white); }
+.shop-item strong { font: 900 0.85rem/1.15 var(--font); }
+.swatch { width: 40px; height: 40px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 3px oklch(1 0 0 / 0.6), 0 2px 6px oklch(0.27 0.07 290 / 0.25); }
+/* Hats: a dome on a brim. */
+.swatch-hat { border-radius: 50% 50% 8px 8px / 70% 70% 8px 8px; height: 30px; margin-top: 6px; border-bottom: 6px solid color-mix(in oklch, var(--c), black 25%); }
+.shop-btn {
+  width: 100%;
+  padding: 8px 6px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: var(--white);
+  color: var(--grape-deep);
+  font: 900 0.8rem/1.1 var(--font);
+  cursor: pointer;
+}
+.shop-btn.buy { background: var(--grape); color: var(--white); }
+.shop-btn.worn { background: var(--grape-deep); color: var(--white); }
+.shop-btn:disabled { background: oklch(0.9 0.02 300); color: var(--ink-soft); cursor: not-allowed; }
+.shop-btn:focus-visible { outline: 3px solid var(--sunshine); outline-offset: 2px; }
+.coins-earned { display: inline-flex; align-items: center; margin: 6px 0 0; padding: 6px 14px; border-radius: var(--radius-pill); background: oklch(0.96 0.06 92); font: 900 1.1rem/1 var(--font); }
+/* Phones: the shop is a sheet over the bottom of the screen, the coach above it. */
+@media (max-width: 720px) {
+  .shop { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; height: 58%; animation-name: shop-up; }
+  @keyframes shop-up { from { opacity: 0; transform: translateY(24px); } }
+  .shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .title-shop .coin-btn span { display: none; }
+}
+/* While shopping the screen is a fitting room: just the coach and the shop. */
+.title-screen:has(~ .shop) .title-logo,
+.title-screen:has(~ .shop) .title-bottom,
+.lobby:has(~ .shop) .lobby-card { visibility: hidden; }
+/* Phones: a shorter sheet without the explanation, so the coach's outfit shows above it. */
+@media (max-width: 720px) {
+  .shop { height: 44%; padding: 14px 12px 8px; }
+  .shop-note { display: none; }
+  .shop-head h2 { font-size: 1.15rem; }
+  .shop-item { padding: 8px 4px 6px; gap: 4px; }
+  .swatch { width: 30px; height: 30px; }
+  .swatch-hat { height: 22px; }
+  .shop-btn { padding: 6px 4px; font-size: 0.72rem; }
+}

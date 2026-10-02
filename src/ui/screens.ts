@@ -1,5 +1,6 @@
 import { COUNTDOWN_S, countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S, WARMUP, WARMUP_HOLD_S, type Flow } from '../app/flow.ts';
 import type { ScoreEntry } from '../app/leaderboard.ts';
+import { SHOP, SLOTS, type ShopItem, type Wallet } from '../app/wallet.ts';
 import type { PartAccuracy } from '../app/summary.ts';
 import type { FileStatus } from '../app/tracks.ts';
 import { ratingName, type Rating } from '../dance/dance.ts';
@@ -8,7 +9,7 @@ import { songDuration, type Song } from '../dance/song.ts';
 import { songInfo } from '../dance/songs.ts';
 import { loadPlayerName, savePlayerName } from '../multiplayer/persistence.ts';
 import { mp, sharedPodium } from '../main.ts';
-import { isLang, lang, locale, setLang, t } from '../i18n.ts';
+import { isLang, lang, locale, setLang, t, tryT } from '../i18n.ts';
 import { langSwitchHtml } from './lang.ts';
 import { pictogramSvg } from './pictogram.ts';
 
@@ -23,6 +24,8 @@ export interface RoundResult {
   place: number;
   board: ScoreEntry[];
   entry: ScoreEntry;
+  /** Coins this dance earned for the shop. */
+  coins: number;
 }
 
 /** A song as the picker shows it. */
@@ -60,6 +63,8 @@ export interface ScreenModel {
   board(songKey: string): readonly ScoreEntry[];
   /** Changes whenever any table is saved, so the lobby redraws. */
   boardsVersion: number;
+  /** Coins, clothes bought and clothes worn. */
+  wallet: Wallet;
 }
 
 export interface ScreenActions {
@@ -67,6 +72,9 @@ export interface ScreenActions {
   menu(): void;
   pick(key: string): void;
   file(file: File): void;
+  /** Shop: buy an item (and put it on), or put on / take off one already bought. */
+  buy(id: string): void;
+  wear(id: string): void;
 }
 
 const esc = (s: string) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c);
@@ -140,6 +148,41 @@ function fileHtml(status: FileStatus): string {
       <strong>${t(status.kind === 'loading' ? 'file.preparing' : 'file.cta')}</strong>
       <span>${note}</span>
     </label>`;
+}
+
+/** The coin balance, which opens the shop. */
+const coinButton = (w: Wallet) => `<button id="shop-open" class="coin-btn" type="button" aria-haspopup="dialog"><i class="coin" aria-hidden="true"></i>${esc(t('shop.coins', { n: w.coins }))}<span>· ${esc(t('shop.open'))}</span></button>`;
+
+function shopItemHtml(item: ShopItem, w: Wallet): string {
+  const owned = w.owned.includes(item.id);
+  const worn = w.worn[item.slot] === item.id;
+  const short = item.price - w.coins;
+  const button = owned
+    ? `<button class="shop-btn ${worn ? 'worn' : ''}" type="button" data-wear="${esc(item.id)}" aria-pressed="${worn}">${esc(t(worn ? 'shop.takeOff' : 'shop.wear'))}</button>`
+    : `<button class="shop-btn buy" type="button" data-buy="${esc(item.id)}"${short > 0 ? ' disabled' : ''}>${esc(short > 0 ? t('shop.short', { n: short }) : t('shop.buy', { price: item.price }))}</button>`;
+  return `<li class="shop-item ${worn ? 'worn' : ''}">
+      <span class="swatch swatch-${item.slot}" style="--c:${item.swatch}" aria-hidden="true"></span>
+      <strong>${esc(tryT(item.name) ?? item.id)}</strong>
+      ${button}
+    </li>`;
+}
+
+/** The clothes shop: a panel beside the stage, so the coach can be seen trying things on. */
+function shopHtml(w: Wallet): string {
+  return `
+  <aside class="shop" role="dialog" aria-modal="false" aria-labelledby="shop-title">
+    <header class="shop-head">
+      <h2 id="shop-title">${esc(t('shop.title'))}</h2>
+      <span class="coin-pill"><i class="coin" aria-hidden="true"></i>${esc(t('shop.coins', { n: w.coins }))}</span>
+      <button id="shop-close" class="menu-x" type="button" aria-label="${esc(t('shop.close'))}" title="${esc(t('shop.close'))}">×</button>
+    </header>
+    <p class="shop-note">${esc(t('shop.note'))}</p>
+    <div class="shop-body">
+      ${SLOTS.map((slot) => `
+        <h3>${esc(t(`shop.slot.${slot}`))}</h3>
+        <ul class="shop-grid">${SHOP.filter((i) => i.slot === slot).map((i) => shopItemHtml(i, w)).join('')}</ul>`).join('')}
+    </div>
+  </aside>`;
 }
 
 /** The lobby shows the chosen song's top three; the results screen shows all five. */
@@ -225,6 +268,7 @@ function lobbyHtml(m: ScreenModel, showJoin: boolean, editName: boolean): string
         ${langSwitchHtml()}
         <h2>${t('lobby.title')}</h2>
         ${nameBlock}
+        ${coinButton(m.wallet)}
       </header>
       <div class="lobby-body">
         <div class="lobby-songs">${songsBlock}</div>
@@ -259,11 +303,12 @@ function podiumHtml(): string {
  * The title screen: the coach dances in the middle of the stage, the name above her and the one thing
  * to do below, like a game's title screen rather than a page of text.
  */
-function introHtml(demo: boolean): string {
+function introHtml(demo: boolean, w: Wallet): string {
   const tips = (['intro.tipDistance', 'intro.tipHands', 'intro.tipPrivate'] as const).map((k) => `<li>${esc(t(k))}</li>`).join('');
   return `
   <section class="screen intro title-screen">
     <div class="title-lang">${langSwitchHtml()}</div>
+    <div class="title-shop">${coinButton(w)}</div>
     <header class="title-logo">
       <h1 class="logo">Motion <span>Dance</span></h1>
     </header>
@@ -363,6 +408,7 @@ function resultsHtml(r: RoundResult, m: ScreenModel): string {
       <button id="results-menu" class="menu-x" type="button" aria-label="${t('menu')}" title="${t('menu')}">×</button>
       <p class="chip ${r.place === 0 ? 'chip-record' : ''}">${t(r.place === 0 ? 'results.record' : 'results.over')} · ${esc(r.songTitle)}</p>
       ${starRow(r.stars)}
+      ${r.coins > 0 ? `<p class="coins-earned"><i class="coin" aria-hidden="true"></i>${esc(t('results.coins', { n: r.coins }))}</p>` : ''}
       <div class="big-score">${r.points}</div>
       <ul class="stats">
         ${ratings.map((k) => `<li class="rating-${k}"><strong>${r.counts[k]}</strong><span>${ratingName(k)}</span></li>`).join('')}
@@ -406,6 +452,7 @@ export class Screens {
   private readonly root: HTMLElement;
   private key = '';
   private showJoin = false;
+  private shopOpen = false;
   private editName = false;
 
   constructor(root: HTMLElement, actions: ScreenActions) {
@@ -417,7 +464,12 @@ export class Screens {
       const id = btn?.id ?? target.id;
       const langBtn = target.closest<HTMLElement>('[data-lang]');
       if (langBtn && isLang(langBtn.dataset.lang)) { setLang(langBtn.dataset.lang); return; }
-      if (id === 'start-btn' || id === 'retry-btn') { actions.start(); return; }
+      if (id === 'shop-open') { this.shopOpen = true; return; }
+      if (id === 'shop-close') { this.shopOpen = false; return; }
+      const shopBtn = target.closest<HTMLElement>('[data-buy], [data-wear]');
+      if (shopBtn?.dataset.buy) { actions.buy(shopBtn.dataset.buy); return; }
+      if (shopBtn?.dataset.wear) { actions.wear(shopBtn.dataset.wear); return; }
+      if (id === 'start-btn' || id === 'retry-btn') { this.shopOpen = false; actions.start(); return; }
       if (id === 'results-menu' || id === 'lobby-menu' || id === 'loading-cancel' || id === 'error-menu') { actions.menu(); return; }
       if (id === 'lobby-save-name') { this.saveName(); return; }
       if (id === 'lobby-edit-name') { this.editName = true; return; }
@@ -520,6 +572,12 @@ export class Screens {
     } else {
       key = p.kind;
     }
+    // The shop and the coin balance live on the title screen and in the lobby.
+    if (p.kind === 'intro' || p.kind === 'lobby') {
+      key += `|shop:${this.shopOpen ? 1 : 0}:${m.wallet.coins}:${m.wallet.owned.join(',')}:${JSON.stringify(m.wallet.worn)}`;
+    } else {
+      this.shopOpen = false;
+    }
     // A language switch redraws whatever screen is up.
     key = `${lang()}:${key}`;
     if (key !== this.key) {
@@ -595,8 +653,8 @@ export class Screens {
   private html(m: ScreenModel): string {
     const p = m.flow.phase;
     switch (p.kind) {
-      case 'intro': return introHtml(m.demo);
-      case 'lobby': return lobbyHtml(m, this.showJoin, this.editName);
+      case 'intro': return introHtml(m.demo, m.wallet) + (this.shopOpen ? shopHtml(m.wallet) : '');
+      case 'lobby': return lobbyHtml(m, this.showJoin, this.editName) + (this.shopOpen ? shopHtml(m.wallet) : '');
       case 'loading': return loadingHtml();
       case 'error': return errorHtml(p.message);
       case 'calibrating': return calibHtml(m.distance);

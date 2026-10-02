@@ -1,4 +1,4 @@
-import { AnimationMixer, Bone, Box3, CanvasTexture, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3, type AnimationClip, type Object3D } from 'three';
+import { AnimationMixer, Bone, Box3, CanvasTexture, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3, type AnimationClip, type Object3D, type Texture } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { MoveTarget } from '../dance/moves.ts';
@@ -42,13 +42,23 @@ function findBone(root: Object3D, name: string): Bone {
   return found;
 }
 
-/** Gives a copy of the model its own recoloured texture; geometry stays shared. */
-function dress(model: Object3D, look: Look): void {
+/** Each textured mesh's own texture before any recolouring, so clothes can change again later. */
+type Originals = Map<Mesh, Texture>;
+
+function originalsOf(model: Object3D): Originals {
+  const out: Originals = new Map();
   model.traverse((o) => {
-    if (!(o instanceof Mesh) || !(o.material instanceof MeshStandardMaterial)) return;
-    const source = o.material.map;
-    const image = source?.image as CanvasImageSource & { width: number; height: number } | undefined;
-    if (!source || !image) return;
+    if (o instanceof Mesh && o.material instanceof MeshStandardMaterial && o.material.map) out.set(o, o.material.map);
+  });
+  return out;
+}
+
+/** Gives a copy of the model its own recoloured texture, made from the original; geometry stays shared. */
+function dress(originals: Originals, look: Partial<Look>): void {
+  for (const [o, source] of originals) {
+    if (!(o.material instanceof MeshStandardMaterial)) continue;
+    const image = source.image as CanvasImageSource & { width: number; height: number } | undefined;
+    if (!image) continue;
     const canvas = document.createElement('canvas');
     canvas.width = image.width;
     canvas.height = image.height;
@@ -63,10 +73,25 @@ function dress(model: Object3D, look: Look): void {
     map.colorSpace = source.colorSpace;
     map.wrapS = source.wrapS;
     map.wrapT = source.wrapT;
-    const material = o.material.clone();
+    const old = o.material;
+    const material = old.clone();
     material.map = map;
     o.material = material;
-  });
+    // A texture this function made earlier (not the model's own) is no longer used.
+    if (old.map && old.map !== source) old.map.dispose();
+  }
+}
+
+/** Puts the model's own textures back. */
+function undress(originals: Originals): void {
+  for (const [o, source] of originals) {
+    if (!(o.material instanceof MeshStandardMaterial) || o.material.map === source) continue;
+    const old = o.material;
+    const material = old.clone();
+    material.map = source;
+    o.material = material;
+    if (old.map && old.map !== source) old.map.dispose();
+  }
 }
 
 export interface RealCoachOptions {
@@ -110,6 +135,8 @@ export class RealCoach implements CoachView {
   /** Every bone's rest pose, restored when a recorded dance hands back to the eased angles. */
   private readonly bind = new Map<Bone, { q: Quaternion; p: Vector3 }>();
   private recorded = false;
+  /** The model's own textures, to dress it again from. */
+  private readonly originals: Originals;
   private readonly leftHip: Bone;
   private readonly rightHip: Bone;
   /** Where the hips stand at rest, in the group's space: the recorded dance is kept on this spot. */
@@ -127,13 +154,15 @@ export class RealCoach implements CoachView {
     }
     const { scene, animations } = await gltf;
     const model = cloneSkinned(scene);
-    if (options.look) dress(model, options.look);
-    const coach = new RealCoach(model, options, animations.find((a) => a.name === DANCE_CLIP) ?? null);
+    const originals = originalsOf(model);
+    if (options.look) dress(originals, options.look);
+    const coach = new RealCoach(model, options, animations.find((a) => a.name === DANCE_CLIP) ?? null, originals);
     if (options.look) coach.setHat(options.look.hat);
     return coach;
   }
 
-  private constructor(model: Object3D, { height = HEIGHT, castShadow = true }: RealCoachOptions, clip: AnimationClip | null) {
+  private constructor(model: Object3D, { height = HEIGHT, castShadow = true }: RealCoachOptions, clip: AnimationClip | null, originals: Originals) {
+    this.originals = originals;
     this.model = model;
     model.traverse((o) => {
       if (o instanceof Mesh) {
@@ -185,6 +214,13 @@ export class RealCoach implements CoachView {
       this.mixer = new AnimationMixer(model);
       this.mixer.clipAction(clip).play();
     }
+  }
+
+  /** Changes clothes: the parts `look` sets are recoloured, the rest is the model's own; null undresses. */
+  wear(look: Partial<Look> | null): void {
+    const colours = look && (look.top !== undefined || look.pants !== undefined || look.hair !== undefined || look.skin !== undefined);
+    if (colours) dress(this.originals, look);
+    else undress(this.originals);
   }
 
   setHat(hat: Hat): void {

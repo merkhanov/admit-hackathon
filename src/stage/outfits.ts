@@ -43,15 +43,16 @@ function hslToRgb(h: number, s: number, l: number): [number, number, number] {
 /**
  * Recolours the coach's texture in place (RGBA bytes). Colour ranges pick the parts:
  * saturated yellow is the trousers, near-grey the top, warm brown the skin, near-black the hair.
+ * A part the look leaves out (clothes from the shop change only what was bought) keeps its colour.
  */
-export function recolor(px: Uint8ClampedArray, look: Look): void {
+export function recolor(px: Uint8ClampedArray, look: Partial<Look>): void {
   for (let i = 0; i < px.length; i += 4) {
     const [h, s, l] = rgbToHsl(px[i] / 255, px[i + 1] / 255, px[i + 2] / 255);
     let out: [number, number, number] | null = null;
-    if (h >= 38 && h <= 70 && s > 0.45 && l > 0.35) out = hslToRgb(look.pants, s * 0.85, l * 0.92);
-    else if (s < 0.12 && l > 0.35 && l < 0.85) out = hslToRgb(look.top, 0.45, l);
-    else if (h >= 12 && h <= 38 && s > 0.2 && s < 0.8 && l > 0.08 && l < 0.62) out = hslToRgb(h + 4, s * 0.9, Math.min(0.82, l * look.skin));
-    else if (look.hair !== null && l < 0.3 && s < 0.35) out = hslToRgb(look.hair, 0.5, 0.03 + l * 1.6);
+    if (h >= 38 && h <= 70 && s > 0.45 && l > 0.35) { if (look.pants !== undefined) out = hslToRgb(look.pants, s * 0.85, l * 0.92); }
+    else if (s < 0.12 && l > 0.35 && l < 0.85) { if (look.top !== undefined) out = hslToRgb(look.top, 0.45, l); }
+    else if (h >= 12 && h <= 38 && s > 0.2 && s < 0.8 && l > 0.08 && l < 0.62) { if (look.skin !== undefined) out = hslToRgb(h + 4, s * 0.9, Math.min(0.82, l * look.skin)); }
+    else if (look.hair !== undefined && look.hair !== null && l < 0.3 && s < 0.35) out = hslToRgb(look.hair, 0.5, 0.03 + l * 1.6);
     if (!out) continue;
     px[i] = out[0] * 255;
     px[i + 1] = out[1] * 255;

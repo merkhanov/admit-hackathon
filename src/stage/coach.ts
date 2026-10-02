@@ -1,7 +1,8 @@
-import { BackSide, BoxGeometry, Group, Mesh, MeshBasicMaterial, MeshToonMaterial, SphereGeometry, Vector3, type BufferGeometry, type Texture } from 'three';
+import { BackSide, BoxGeometry, Color, Group, Mesh, MeshBasicMaterial, MeshToonMaterial, SphereGeometry, Vector3, type BufferGeometry, type Texture } from 'three';
 import { drawBend, type MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
 import { buildHat } from './hats.ts';
+import type { Look } from './outfits.ts';
 import type { Hat } from './themes.ts';
 
 const OUTLINE = new MeshBasicMaterial({ color: 0xffffff, side: BackSide });
@@ -26,6 +27,8 @@ export interface CoachView {
    */
   update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number, clip?: number | null): void;
   setHat(hat: Hat): void;
+  /** Changes clothes: the parts `look` sets are recoloured, the rest stays; null puts the dancer's own back. */
+  wear(look: Partial<Look> | null): void;
 }
 
 /**
@@ -77,10 +80,14 @@ export class Coach implements CoachView {
   private readonly motion = new CoachMotion();
   private readonly bun: Mesh;
   private hat: Group | null = null;
+  private readonly outfit: Outfit;
+  private readonly clothes: { top: MeshToonMaterial; pants: MeshToonMaterial; hair: MeshToonMaterial };
 
   constructor(ramp: Texture, outfit: Outfit = COACH_OUTFIT) {
     const mat = (color: number) => new MeshToonMaterial({ color, gradientMap: ramp });
     const top = mat(outfit.top), pants = mat(outfit.pants), shoes = mat(0xffd21f), skin = mat(0xf2c28b), hair = mat(outfit.hair), glove = mat(0xffffff);
+    this.outfit = outfit;
+    this.clothes = { top, pants, hair };
     const part = (geo: BufferGeometry, m: MeshToonMaterial, outline = 1.07) => {
       const mesh = new Mesh(geo, m);
       const rim = new Mesh(geo, OUTLINE);
@@ -142,6 +149,15 @@ export class Coach implements CoachView {
     this.hips.add(this.torso);
     this.hips.position.y = 1.02;
     this.group.add(this.hips);
+  }
+
+  wear(look: Partial<Look> | null): void {
+    // Bright, candy-coloured versions of the hues, as the rest of the cartoon figure.
+    const hue = (h: number | null | undefined, own: number, s = 0.75, l = 0.6) =>
+      h === undefined || h === null ? new Color(own) : new Color().setHSL(h / 360, s, l);
+    this.clothes.top.color.copy(hue(look?.top, this.outfit.top));
+    this.clothes.pants.color.copy(hue(look?.pants, this.outfit.pants));
+    this.clothes.hair.color.copy(hue(look?.hair, this.outfit.hair, 0.6, 0.45));
   }
 
   setHat(hat: Hat): void {

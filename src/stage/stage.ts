@@ -9,7 +9,7 @@ import type { MoveTarget } from '../dance/moves.ts';
 import { Coach, type CoachView, type Outfit } from './coach.ts';
 import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
-import { CREW_LOOKS } from './outfits.ts';
+import { CREW_LOOKS, type Look } from './outfits.ts';
 import { THEMES, type StageTheme } from './themes.ts';
 import { t } from '../i18n.ts';
 
@@ -28,6 +28,8 @@ interface CrewAvatar {
   ring: Mesh;
   slot: number;
   pose: MoveTarget | null;
+  /** The clothes the avatar has on, to change them only when the player's change. */
+  worn: string;
   /** 1 right after a miss, fading to 0: the avatar flinches and the ring glows red. */
   flinch: number;
   /** 1 right after a perfect, fading to 0: the ring glows green. */
@@ -57,6 +59,8 @@ export interface CrewMember {
   score: number;
   /** Their latest pose, or null when none arrived recently (the avatar grooves in place). */
   pose: MoveTarget | null;
+  /** Clothes they bought in the shop and wear, over their slot's look. */
+  look?: Partial<Look>;
 }
 
 /** Where avatars stand: beside the coach, a little behind, smaller. Up to three other players. */
@@ -89,6 +93,8 @@ export interface StageView {
   draw(frame: StageFrame, dt: number): void;
   /** Colours and the coach's costume for a song. */
   setTheme(theme: StageTheme): void;
+  /** The player's clothes from the shop, worn by the coach; a hat replaces the song's. Null for none. */
+  setLook(look: Partial<Look> | null): void;
 }
 
 /** A neon dance stage with the coach. Visual only: no game rules here. */
@@ -111,6 +117,8 @@ export class Stage implements StageView {
   /** Realistic avatar per slot once loaded; until then the slot shows a cartoon figure. */
   private readonly crewModels: (RealCoach | null)[] = CREW_LOOKS.map(() => null);
   private crewLoading = false;
+  /** The player's clothes from the shop, on the coach. */
+  private look: Partial<Look> | null = null;
   private readonly tagLayer: HTMLDivElement;
   private theme: StageTheme = THEMES.neon;
   private readonly wall: Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -196,7 +204,8 @@ export class Stage implements StageView {
     RealCoach.load(`${import.meta.env.BASE_URL}${DANCER_MODEL}`).then(
       (real) => {
         this.scene.remove(this.coach.group);
-        real.setHat(this.theme.hat);
+        real.setHat(this.look?.hat ?? this.theme.hat);
+        real.wear(this.look);
         this.coach = real;
         this.scene.add(real.group);
       },
@@ -225,7 +234,7 @@ export class Stage implements StageView {
       if (b.material instanceof MeshBasicMaterial) b.material.color.set(theme.floor[i % theme.floor.length]);
     });
     this.paintFloor(0);
-    this.coach.setHat(theme.hat);
+    this.coach.setHat(this.look?.hat ?? theme.hat);
   }
 
   private paintFloor(shift: number): void {
@@ -262,9 +271,11 @@ export class Stage implements StageView {
     });
   }
 
-  private placeAvatar(a: { coach: CoachView; slot: number }, view: CoachView): void {
+  private placeAvatar(a: { coach: CoachView; slot: number; worn: string }, view: CoachView): void {
     this.scene.remove(a.coach.group);
     a.coach = view;
+    // The newly loaded model is dressed again on the next update.
+    a.worn = '';
     view.group.position.set(CREW_SLOTS[a.slot].x, 0, CREW_SLOTS[a.slot].z);
     this.scene.add(view.group);
   }
@@ -307,13 +318,31 @@ export class Stage implements StageView {
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(CREW_SLOTS[slot].x, 0.03, CREW_SLOTS[slot].z);
         this.scene.add(ring);
-        a = { coach, tag, pop, ring, slot, pose: null, flinch: 0, shine: 0 };
+        a = { coach, tag, pop, ring, slot, pose: null, worn: '', flinch: 0, shine: 0 };
         this.crew.set(m.id, a);
       }
       a.pose = m.pose;
+      this.dressAvatar(a, m.look ?? null);
       const text = `${m.name} · ${m.score}`;
       if (a.tag.textContent !== text) a.tag.textContent = text;
     }
+  }
+
+  /** An avatar wears its slot's look with the player's own clothes on top. */
+  private dressAvatar(a: CrewAvatar, look: Partial<Look> | null): void {
+    const key = JSON.stringify(look ?? {});
+    if (key === a.worn) return;
+    a.worn = key;
+    const base = CREW_LOOKS[a.slot % CREW_LOOKS.length];
+    const merged = { ...base, ...(look ?? {}) };
+    a.coach.wear(merged);
+    a.coach.setHat(merged.hat);
+  }
+
+  setLook(look: Partial<Look> | null): void {
+    this.look = look;
+    this.coach.wear(look);
+    this.coach.setHat(look?.hat ?? this.theme.hat);
   }
 
   /** Celebrates good moves with confetti and shakes a little on a miss. */

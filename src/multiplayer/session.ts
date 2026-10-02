@@ -32,7 +32,7 @@ export function stepSession(state: MultiplayerState, msg: MPMessage): { state: M
       if (players[msg.player.id]) return { state, events };
       if (Object.keys(players).length >= MAX_PLAYERS) return { state, events };
       const isHost = Object.keys(players).length === 0;
-      players[msg.player.id] = player(msg.player.id, msg.player.name, isHost);
+      players[msg.player.id] = { ...player(msg.player.id, msg.player.name, isHost), ...(msg.player.look ? { look: msg.player.look } : {}) };
       const p = players[msg.player.id];
       events.push({ kind: 'playerJoined', player: p });
       if (isHost) events.push({ kind: 'hostChanged', playerId: p.id });
@@ -58,6 +58,12 @@ export function stepSession(state: MultiplayerState, msg: MPMessage): { state: M
       const name = msg.name.trim().slice(0, 24);
       if (!p || !name || p.name === name) return { state, events };
       players[msg.playerId] = { ...p, name };
+      return { state: { ...state, players }, events };
+    }
+    case 'look': {
+      const p = players[msg.playerId];
+      if (!p) return { state, events };
+      players[msg.playerId] = { ...p, look: msg.look };
       return { state: { ...state, players }, events };
     }
     case 'ready': {

@@ -6,6 +6,14 @@ import type { SongId } from '../dance/songs.ts';
  */
 export type CompactPose = [number, number, number, number, number, number];
 
+/** A player's clothes from the shop: colour hues and a hat, only the parts they bought. */
+export interface PlayerLook {
+  top?: number;
+  pants?: number;
+  hair?: number;
+  hat?: 'cap' | 'papakha' | 'bow' | 'crown' | 'kalpak';
+}
+
 /** A move's rating, as in dance/dance.ts. */
 export type VerdictRating = 'perfect' | 'good' | 'ok' | 'miss';
 
@@ -25,6 +33,8 @@ export interface MPPlayer {
   accuracy: number;
   /** When the player finished, epoch ms. */
   finishedAt: number | null;
+  /** Clothes bought in the shop and worn: their avatar wears them on everyone's screen. */
+  look?: PlayerLook;
   /** Calibrated and warmed up for the current song: the room counts down once everyone is. */
   ready: boolean;
 }
@@ -42,9 +52,11 @@ export interface MultiplayerState {
 
 /** Messages exchanged between peers (over BroadcastChannel or WebRTC data channel). */
 export type MPMessage =
-  | { type: 'join'; player: { id: string; name: string } }
+  | { type: 'join'; player: { id: string; name: string; look?: PlayerLook } }
   | { type: 'leave'; playerId: string }
   | { type: 'rename'; playerId: string; name: string }
+  /** The player changed clothes in the shop. */
+  | { type: 'look'; playerId: string; look: PlayerLook }
   /** The player finished calibration (and the warm-up) and waits for the others. */
   | { type: 'ready'; playerId: string }
   | { type: 'host'; playerId: string }

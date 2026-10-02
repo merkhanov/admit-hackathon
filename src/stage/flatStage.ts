@@ -32,6 +32,9 @@ export class FlatStage implements StageView {
   /** No avatars here: the scoreboard shows other players' misses. */
   crewReact(): void {}
 
+  /** The flat coach is a silhouette: clothes don't show. */
+  setLook(): void {}
+
   setTheme(theme: StageTheme): void {
     this.theme = theme;
   }
