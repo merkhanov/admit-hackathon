@@ -36,6 +36,17 @@ export type Features =
 
 interface Point { x: number; y: number; v: number }
 
+/** A wrist this sure is seen, wherever it is. */
+const SURE = 0.5;
+/**
+ * The light pose model is shy about wrists: on real dancing it often rates a correctly placed wrist
+ * 0.35–0.5, and the game used to say "can't see your arm" while it was plainly in view. Measured
+ * against MediaPipe's most accurate model, wrists in that range inside the frame point the right way
+ * 31 times out of 33, so they count. Outside the frame such a wrist is a guess and still doesn't.
+ */
+const LIKELY = 0.35;
+const inFrame = (x: number, y: number) => x >= 0.02 && x <= 0.98 && y >= 0 && y <= 0.98;
+
 const visibility = (v: number | undefined) => v ?? 1;
 
 function angleAt(a: Point, b: Point, c: Point): number {
@@ -61,7 +72,7 @@ export function features(pose: Pose | null, aspect: number): Features {
   const arm = (s: number, e: number, w: number, outward: 1 | -1): ArmFeatures => {
     const S = P(s), E = P(e), W = P(w);
     return {
-      ok: W.v >= 0.5 || W.y < 0.05,
+      ok: W.v >= SURE || (W.v >= LIKELY && inFrame(pose[w].x, pose[w].y)) || W.y < 0.05,
       raise: (S.y - W.y) / sw,
       out: (outward * (W.x - S.x)) / sw,
       elbow: angleAt(S, E, W),

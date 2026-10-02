@@ -74,13 +74,18 @@ export function recalibrate(state: TrackerState): TrackerState {
 export const calibration = (state: TrackerState): Calibration | null =>
   state.stage.kind === 'tracking' ? state.stage.calib : null;
 
+/** Visibility is smoothed too, so an arm at the edge of what the model sees doesn't flicker in and out. */
+const VISIBILITY_SMOOTHING = 0.5;
+
 function smoothPose(prev: Landmark[] | null, cur: Pose | null): Landmark[] | null {
   if (!cur) return null;
   if (!prev || prev.length !== cur.length) return cur.map((p) => ({ ...p }));
   return cur.map((p, i) => ({
     x: prev[i].x + SMOOTHING * (p.x - prev[i].x),
     y: prev[i].y + SMOOTHING * (p.y - prev[i].y),
-    visibility: p.visibility,
+    visibility: p.visibility === undefined || prev[i].visibility === undefined
+      ? p.visibility
+      : prev[i].visibility + VISIBILITY_SMOOTHING * (p.visibility - prev[i].visibility),
   }));
 }
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { NEUTRAL, SYNTH_ASPECT, seededRandom, synthPose, type SynthParams } from '../src/pose/synthetic.ts';
 import { armsFitLimit, distanceProblem } from '../src/pose/gestures.ts';
-import type { Features } from '../src/pose/features.ts';
+import { features, type Features } from '../src/pose/features.ts';
 import { calibration, initTracker, recalibrate, stepTracker, type Hint, type TrackerEvent, type TrackerState } from '../src/pose/tracker.ts';
 
 const FRAME_MS = 33;
@@ -163,5 +163,26 @@ describe('distance during calibration', () => {
   it('asks to come closer when the body is tiny, and is quiet in between', () => {
     expect(distanceProblem(at(0.05))).toBe('far');
     expect(distanceProblem(at(Math.min(0.2, armsFitLimit(SYNTH_ASPECT) - 0.01)))).toBeNull();
+  });
+});
+
+describe('a wrist the model is unsure about', () => {
+  const withWrist = (v: number, x?: number) => {
+    const lm = synthPose({ ...NEUTRAL, ...{ rUp: 1, rOut: 1 } });
+    lm[16] = { ...lm[16], visibility: v, ...(x === undefined ? {} : { x }) };
+    const f = features(lm, SYNTH_ASPECT);
+    if (!f.present) throw new Error('visible');
+    return f.arms.R.ok;
+  };
+
+  it('counts inside the frame at 0.35 or more, as the light model often rates a wrist it placed right', () => {
+    expect(withWrist(0.9)).toBe(true);
+    expect(withWrist(0.4)).toBe(true);
+    expect(withWrist(0.3)).toBe(false);
+  });
+
+  it('outside the frame a doubtful wrist is a guess and does not count', () => {
+    expect(withWrist(0.4, -0.05)).toBe(false);
+    expect(withWrist(0.6, -0.05)).toBe(true);
   });
 });
