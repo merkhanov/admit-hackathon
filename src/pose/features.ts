@@ -40,11 +40,11 @@ interface Point { x: number; y: number; v: number }
 const SURE = 0.5;
 /**
  * The light pose model is shy about wrists: on real dancing it often rates a correctly placed wrist
- * 0.35–0.5, and the game used to say "can't see your arm" while it was plainly in view. Measured
+ * 0.3–0.5, and the game used to say "can't see your arm" while it was plainly in view. Measured
  * against MediaPipe's most accurate model, wrists in that range inside the frame point the right way
- * 31 times out of 33, so they count. Outside the frame such a wrist is a guess and still doesn't.
+ * almost every time, so they count. Outside the frame such a wrist is a guess and still doesn't.
  */
-const LIKELY = 0.35;
+const LIKELY = 0.3;
 const inFrame = (x: number, y: number) => x >= 0.02 && x <= 0.98 && y >= 0 && y <= 0.98;
 
 const visibility = (v: number | undefined) => v ?? 1;

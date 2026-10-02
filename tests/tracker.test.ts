@@ -175,14 +175,14 @@ describe('a wrist the model is unsure about', () => {
     return f.arms.R.ok;
   };
 
-  it('counts inside the frame at 0.35 or more, as the light model often rates a wrist it placed right', () => {
+  it('counts inside the frame at 0.3 or more, as the light model often rates a wrist it placed right', () => {
     expect(withWrist(0.9)).toBe(true);
-    expect(withWrist(0.4)).toBe(true);
-    expect(withWrist(0.3)).toBe(false);
+    expect(withWrist(0.35)).toBe(true);
+    expect(withWrist(0.25)).toBe(false);
   });
 
   it('outside the frame a doubtful wrist is a guess and does not count', () => {
-    expect(withWrist(0.4, -0.05)).toBe(false);
+    expect(withWrist(0.35, -0.05)).toBe(false);
     expect(withWrist(0.6, -0.05)).toBe(true);
   });
 });
