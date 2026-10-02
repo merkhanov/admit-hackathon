@@ -844,6 +844,7 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
  * and the start button with three short tips sits at the bottom, like a game's title screen.
  */
 .screen.title-screen {
+  isolation: isolate;
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
@@ -856,7 +857,8 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 .title-lang .lang-switch button[aria-pressed="true"] { background: var(--grape); }
 .title-logo { margin-top: clamp(8px, 2.5vh, 40px); }
 .title-screen .logo {
-  font-size: clamp(3rem, min(9.5vw, 14vh), 7rem);
+  font-size: clamp(2.2rem, min(12vw, 14vh), 7rem);
+  white-space: nowrap;
   color: var(--white);
   -webkit-text-stroke: 0;
   text-shadow: 0 5px 0 var(--grape-deep), 0 14px 34px oklch(0.27 0.07 290 / 0.45);
@@ -874,7 +876,25 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   font: 800 clamp(0.95rem, 1.9vw, 1.2rem)/1.3 var(--font);
   animation: title-in 600ms 120ms var(--ease-out-expo) both;
 }
-.title-bottom { display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(720px, 100%); }
+.title-bottom { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(720px, 100%); }
+/* A soft dark band behind the menu, so white text reads on the bright floor. */
+.screen.title-screen::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 42%;
+  background: linear-gradient(to top, oklch(0.27 0.07 290 / 0.62), oklch(0.27 0.07 290 / 0));
+  pointer-events: none;
+  z-index: -1;
+}
+.title-menu { display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(560px, 100%); }
+.title-menu .cta-hero { width: 100%; }
+.title-menu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.title-menu-row .cta { width: 100%; padding: 16px 14px; font-size: clamp(1rem, 1.6vw, 1.15rem); background: oklch(1 0 0 / 0.92); animation: title-in 600ms 300ms var(--ease-out-expo) both; }
+.title-shop-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.title-shop-btn .coin { width: 1.5em; height: 1.5em; margin-right: 6px; }
+.shop-text { display: grid; justify-items: start; gap: 2px; text-align: left; }
+.shop-text small { font: 800 0.8rem/1 var(--font); color: var(--ink-soft); white-space: nowrap; }
 .cta.cta-hero {
   font-size: clamp(1.25rem, 2.6vw, 1.6rem);
   padding: 22px clamp(28px, 5vw, 56px);
@@ -890,20 +910,33 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   font: 800 0.85rem/1.25 var(--font);
   box-shadow: var(--shadow-float);
 }
-.title-screen .credit { margin: 0; color: var(--white); font-weight: 800; text-shadow: 0 1px 6px oklch(0.27 0.07 290 / 0.6); }
+.title-screen .credit { margin: 0; color: oklch(1 0 0 / 0.9); font: 800 0.8rem/1.2 var(--font); text-shadow: 0 1px 4px oklch(0.27 0.07 290 / 0.8); }
+/* The tagline sits under the name on wide screens and above the menu on tall ones, wherever the coach isn't. */
+.title-logo { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.tagline-bottom { display: none !important; }
+@media (max-aspect-ratio: 1/1) {
+  .tagline-top { display: none !important; }
+  .tagline-bottom { display: inline-block !important; }
+}
+/* Finger-sized controls on the title screen. */
+.title-lang .lang-switch button { min-height: 44px; min-width: 52px; }
 @keyframes title-in { from { opacity: 0; transform: translateY(14px) scale(0.97); } }
 @keyframes hero-pulse { 50% { box-shadow: 0 6px 0 var(--grape-deep), 0 0 0 10px oklch(0.53 0.21 300 / 0.18), var(--shadow-float); } }
 @media (max-width: 720px) {
-  .title-logo { margin-top: 44px; }
+  .title-logo { margin-top: 52px; }
   .cta.cta-hero { width: 100%; padding: 18px 20px; }
-  .title-tips li { font-size: 0.78rem; padding: 5px 10px; }
+  .title-menu-row .cta { padding: 12px 8px; font-size: 0.95rem; white-space: normal; }
+  /* The tips become one quiet line of text, so the menu leaves the coach room. */
+  .title-tips { gap: 2px 10px; }
+  .title-tips li { padding: 0; background: none; box-shadow: none; backdrop-filter: none; color: var(--white); font-size: 0.75rem; text-shadow: 0 1px 4px oklch(0.27 0.07 290 / 0.8); }
+  .title-screen .tagline { font-size: 0.9rem; padding: 6px 14px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .cta.cta-hero { animation: none; }
 }
 /* Short phones (iPhone SE): the tips say enough, so the tagline gives the coach the room. */
 @media (max-width: 720px) and (max-height: 640px) {
-  .title-screen .tagline { display: none; }
+  .title-screen .tagline, .title-screen .credit { display: none !important; }
   .title-bottom { gap: 8px; }
   .title-tips { gap: 6px; }
 }
@@ -936,7 +969,6 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 .coin-btn span { color: var(--grape); margin-left: 4px; }
 .coin-btn:hover { transform: translateY(-2px); }
 .coin-btn:focus-visible { outline: 3px solid var(--grape); outline-offset: 2px; }
-.title-shop { position: absolute; top: clamp(12px, 2.4vh, 24px); left: clamp(12px, 2.4vw, 28px); }
 .lobby-head .coin-btn { margin-top: 8px; background: var(--lavender-mist); box-shadow: none; }
 
 /* A panel on the right, so the coach in the middle can be seen trying the clothes on. */
@@ -1003,7 +1035,6 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   .shop { top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; height: 58%; animation-name: shop-up; }
   @keyframes shop-up { from { opacity: 0; transform: translateY(24px); } }
   .shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .title-shop .coin-btn span { display: none; }
 }
 /* While shopping the screen is a fitting room: just the coach and the shop. */
 .title-screen:has(~ .shop) .title-logo,
@@ -1019,3 +1050,7 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   .swatch-hat { height: 22px; }
   .shop-btn { padding: 6px 4px; font-size: 0.72rem; }
 }
+
+/* "Play with friends" opens the lobby here: the room part glows once so the eye finds it. */
+.lobby-friends.focus { border-radius: var(--radius-md); animation: friends-focus 1.4s var(--ease-out) 2; }
+@keyframes friends-focus { 0% { box-shadow: 0 0 0 0 oklch(0.53 0.21 300 / 0.55); } 100% { box-shadow: 0 0 0 16px oklch(0.53 0.21 300 / 0); } }

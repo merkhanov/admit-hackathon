@@ -231,8 +231,9 @@ export const RU = {
   'intro.tipDistance': 'Встань в 1,5–2 м от камеры',
   'intro.tipHands': 'Мышь не нужна, можно сидя',
   'intro.tipPrivate': 'Видео не покидает браузер',
-  'intro.demo': 'Запустить демо без камеры',
-  'intro.start': 'Включить камеру и танцевать',
+  'intro.demo': 'Демо без камеры',
+  'intro.start': 'Танцевать',
+  'intro.friends': 'Играть с друзьями',
   'intro.credit': 'Admit Hackathon 2026, кейс «Motion»',
 
   'loading.title': 'Загружаю распознавание движений',

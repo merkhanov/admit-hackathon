@@ -308,13 +308,19 @@ function introHtml(demo: boolean, w: Wallet): string {
   return `
   <section class="screen intro title-screen">
     <div class="title-lang">${langSwitchHtml()}</div>
-    <div class="title-shop">${coinButton(w)}</div>
     <header class="title-logo">
       <h1 class="logo">Motion <span>Dance</span></h1>
+      <p class="tagline tagline-top">${esc(t('intro.tagline'))}</p>
     </header>
     <div class="title-bottom">
-      <p class="tagline">${esc(t('intro.tagline'))}</p>
-      <button class="cta cta-hero" id="start-btn" type="button">${t(demo ? 'intro.demo' : 'intro.start')}</button>
+      <p class="tagline tagline-bottom">${esc(t('intro.tagline'))}</p>
+      <nav class="title-menu" aria-label="${esc(t('menu'))}">
+        <button class="cta cta-hero" id="start-btn" type="button">${t(demo ? 'intro.demo' : 'intro.start')}</button>
+        <div class="title-menu-row">
+          <button class="cta cta-secondary" id="friends-btn" type="button">${t('intro.friends')}</button>
+          <button class="cta cta-secondary title-shop-btn" id="shop-open" type="button" aria-haspopup="dialog"><i class="coin" aria-hidden="true"></i><span class="shop-text"><b>${esc(t('shop.open'))}</b><small>${esc(t('shop.coins', { n: w.coins }))}</small></span></button>
+        </div>
+      </nav>
       <ul class="title-tips">${tips}</ul>
       <p class="credit">${esc(t('intro.credit'))}</p>
     </div>
@@ -451,6 +457,8 @@ const restartText = (m: ScreenModel) => {
 export class Screens {
   private readonly root: HTMLElement;
   private key = '';
+  /** Scroll the next lobby to its multiplayer part and highlight it. */
+  private focusFriends = false;
   private showJoin = false;
   private shopOpen = false;
   private editName = false;
@@ -470,6 +478,8 @@ export class Screens {
       if (shopBtn?.dataset.buy) { actions.buy(shopBtn.dataset.buy); return; }
       if (shopBtn?.dataset.wear) { actions.wear(shopBtn.dataset.wear); return; }
       if (id === 'start-btn' || id === 'retry-btn') { this.shopOpen = false; actions.start(); return; }
+      // Same lobby, opened at playing with friends: on phones that part sits below the song list.
+      if (id === 'friends-btn') { this.shopOpen = false; this.focusFriends = true; actions.start(); return; }
       if (id === 'results-menu' || id === 'lobby-menu' || id === 'loading-cancel' || id === 'error-menu') { actions.menu(); return; }
       if (id === 'lobby-save-name') { this.saveName(); return; }
       if (id === 'lobby-edit-name') { this.editName = true; return; }
@@ -588,6 +598,13 @@ export class Screens {
         return el instanceof HTMLInputElement ? { id, value: el.value, focused: document.activeElement === el } : null;
       });
       this.root.innerHTML = this.html(m);
+      if (this.focusFriends && p.kind === 'lobby') {
+        this.focusFriends = false;
+        const friends = this.root.querySelector<HTMLElement>('.lobby-friends');
+        friends?.classList.add('focus');
+        friends?.scrollIntoView({ block: 'center' });
+        friends?.querySelector<HTMLElement>('#lobby-create')?.focus({ preventScroll: true });
+      }
       for (const t of typed) {
         const el = t && document.getElementById(t.id);
         if (!t || !(el instanceof HTMLInputElement)) continue;

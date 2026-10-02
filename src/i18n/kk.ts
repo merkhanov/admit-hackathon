@@ -227,8 +227,9 @@ export const KK: Record<Key, Entry> = {
   'intro.tipDistance': 'Камерадан 1,5–2 м қашықтықта тұр',
   'intro.tipHands': 'Тінтуір керек емес, отырып та болады',
   'intro.tipPrivate': 'Бейне браузерден шықпайды',
-  'intro.demo': 'Камерасыз демоны іске қосу',
-  'intro.start': 'Камераны қосып, билеу',
+  'intro.demo': 'Камерасыз демо',
+  'intro.start': 'Билеу',
+  'intro.friends': 'Достармен ойнау',
   'intro.credit': 'Admit Hackathon 2026, «Motion» кейсі',
 
   'loading.title': 'Қимылдарды тануды жүктеп жатырмын',

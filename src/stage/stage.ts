@@ -13,7 +13,7 @@ import { CREW_LOOKS, type Look } from './outfits.ts';
 import { THEMES, type StageTheme } from './themes.ts';
 import { t } from '../i18n.ts';
 
-const FLOOR_COLS = 11, FLOOR_ROWS = 9, TILE = 1.1;
+const FLOOR_COLS = 11, FLOOR_ROWS = 11, TILE = 1.1;
 const MAX_CONFETTI = 260;
 
 interface Confetti { pos: Vector3; vel: Vector3; spin: Vector3; life: number; color: Color }
@@ -46,6 +46,8 @@ export interface StageFrame {
   target: MoveTarget | null;
   /** Beat position in the song; fractional part is the phase within the beat. */
   beat: number;
+  /** The title screen frames the coach smaller, between the name and the menu. */
+  view?: 'title';
   /** Lights and floor react to the music only while it plays. */
   playing: boolean;
   /** Seconds into the coach's recorded dance, for a song danced to a recording; null otherwise. */
@@ -112,6 +114,7 @@ export class Stage implements StageView {
   private readonly color = new Color();
   private lastBeat = -1;
   private shake = 0;
+  private titleMix = 0;
   private readonly ramp: Texture;
   private readonly crew = new Map<string, CrewAvatar>();
   /** Realistic avatar per slot once loaded; until then the slot shows a cartoon figure. */
@@ -176,7 +179,7 @@ export class Stage implements StageView {
     let i = 0;
     for (let r = 0; r < FLOOR_ROWS; r++) {
       for (let c = 0; c < FLOOR_COLS; c++) {
-        this.dummy.position.set((c - (FLOOR_COLS - 1) / 2) * TILE, -0.05, 4.8 - r * TILE);
+        this.dummy.position.set((c - (FLOOR_COLS - 1) / 2) * TILE, -0.05, 7 - r * TILE);
         this.dummy.updateMatrix();
         this.floor.setMatrixAt(i, this.dummy.matrix);
         i++;
@@ -417,8 +420,17 @@ export class Stage implements StageView {
 
     this.shake = Math.max(0, this.shake - dt * 0.4);
     const j = () => (Math.random() - 0.5) * this.shake;
-    this.camera.position.set(j(), 1.5 + j(), 6.1);
-    this.camera.lookAt(0, 1.2, 0);
+    // Ease between the dance framing and the title screen's wider one.
+    this.titleMix += ((frame.view === 'title' ? 1 : 0) - this.titleMix) * Math.min(1, dt * 4);
+    const m = this.titleMix;
+    // Wide screens pull back so the coach fits between the name and the menu; tall phones keep her
+    // big and raise her into the empty middle of the screen instead.
+    const portrait = this.camera.aspect < 0.8;
+    // The menu has a fixed height in pixels, so short screens pull back further to keep her feet clear.
+    const short = Math.max(0, Math.min(1, (900 - window.innerHeight) / 300));
+    const back = portrait ? 0.3 : 1.9 + 2.7 * short, drop = portrait ? 0.85 : 0.3;
+    this.camera.position.set(j(), 1.5 + 0.25 * m + j(), 6.1 + back * m);
+    this.camera.lookAt(0, 1.2 - drop * m, 0);
 
     this.stepConfetti(dt);
     this.renderer.render(this.scene, this.camera);

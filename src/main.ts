@@ -11,7 +11,7 @@ import { bodyAngles, evaluate, type MoveEval } from './dance/judge.ts';
 import { MOVES, moveName, type MoveTarget } from './dance/moves.ts';
 import { songClipSeconds } from './dance/mocap.ts';
 import { poseAt } from './dance/motion.ts';
-import { beatLength, songDuration } from './dance/song.ts';
+import { beatLength, beatTime, buildSong, songDuration } from './dance/song.ts';
 import { DEFAULT_SONG, songInfo, songTitle, type SongId } from './dance/songs.ts';
 import { detectLang, onLangChange, savedLang, setLang, t } from './i18n.ts';
 import { applyPageText } from './ui/lang.ts';
@@ -38,6 +38,10 @@ import { Screens, type RoundResult, type SongCard } from './ui/screens.ts';
 setLang(detectLang(savedLang(), navigator.languages?.length ? navigator.languages : [navigator.language]));
 applyPageText();
 onLangChange(applyPageText);
+
+/** The title screen's dance: eight basic moves, two beats each, looped. */
+const ATTRACT = buildSong('attract', 'Motion Dance', 112, ['wings', 'up', 'discoL', 'discoR', 'muscles', 'leanL', 'leanR', 'vee']);
+const ATTRACT_LOOP_S = beatTime(ATTRACT, ATTRACT.steps.length * 2);
 
 /** How long a move's verdict and its correction stay on screen. */
 const VERDICT_S = 1.8;
@@ -470,8 +474,14 @@ function frame(now: number, dt: number): void {
   const kind = flow.phase.kind;
   const dancing = kind === 'dancing';
   const song = playing.song;
+  // On the title screen the coach dances a short loop of the basic moves, like a game's attract mode.
+  const attractT = beatTime(ATTRACT, ATTRACT.introBeats) + (clock % ATTRACT_LOOP_S);
+  const title = kind === 'intro';
   // The coach dances the choreography continuously, a touch ahead so its easing lands on the beat.
-  const coachTarget = kind === 'warmup' ? target : dancing ? poseAt(song, songTime() + COACH_LEAD_S) : null;
+  const coachTarget = kind === 'warmup' ? target
+    : dancing ? poseAt(song, songTime() + COACH_LEAD_S)
+    : title ? poseAt(ATTRACT, attractT + COACH_LEAD_S)
+    : null;
   // Other players dance as avatars beside the coach on wide screens; phones keep the stage clear.
   const wide = window.innerWidth >= CREW_MIN_WIDTH;
   // Fetch the avatar models while the room waits in the lobby, not when the song starts.
@@ -480,7 +490,8 @@ function frame(now: number, dt: number): void {
   stage.setCrew(showCrew ? crewMembers(now) : []);
   // A song danced to a recording: the coach performs the recording itself, exactly on the music.
   const clip = dancing ? songClipSeconds(song, songTime()) : null;
-  stage.draw({ target: coachTarget, beat: dancing ? Math.max(0, songTime()) / beatLength(song) : 0, playing: dancing, clip }, dt);
+  const beat = dancing ? Math.max(0, songTime()) / beatLength(song) : title ? attractT / beatLength(ATTRACT) : 0;
+  stage.draw({ target: coachTarget, beat, playing: dancing || title, clip, view: title ? 'title' : undefined }, dt);
 
   // Live multiplayer scoreboard: visible during the dance when ≥2 players share the room.
   if (dancing && Object.keys(mp.getState().players).length > 1) {

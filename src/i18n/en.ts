@@ -227,8 +227,9 @@ export const EN: Record<Key, Entry> = {
   'intro.tipDistance': 'Stand 1.5–2 m from the camera',
   'intro.tipHands': 'No mouse needed, sitting works too',
   'intro.tipPrivate': 'Your video never leaves the browser',
-  'intro.demo': 'Start the demo without a camera',
-  'intro.start': 'Turn on the camera and dance',
+  'intro.demo': 'Demo without a camera',
+  'intro.start': 'Dance',
+  'intro.friends': 'Play with friends',
   'intro.credit': 'Admit Hackathon 2026, "Motion" case',
 
   'loading.title': 'Loading motion recognition',
