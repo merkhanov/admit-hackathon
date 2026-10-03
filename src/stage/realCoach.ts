@@ -23,6 +23,31 @@ const HAT_SEAT = 1.08;
 
 interface Chain { arm: Bone; fore: Bone; hand: Bone }
 
+/** A hand's bones: the knuckles that show which way the palm faces, and each finger's joints, base to tip. */
+interface HandRig {
+  index: Bone | null;
+  middle: Bone | null;
+  pinky: Bone | null;
+  /** Joints of each finger, the thumb first, ending with the tip bone. */
+  fingers: Bone[][];
+  /** +1 or -1 so that cross(hand→middle, index→pinky) points out of the palm on this rig. */
+  palmSign: number;
+}
+
+/** How far each finger joint curls towards the palm in a relaxed hand, base to tip (radians). */
+const FINGER_CURL = [0.3, 0.45, 0.3];
+const THUMB_CURL = [0.15, 0.2, 0.15];
+/** The wrist bends a little towards the palm, as a hand does when it isn't holding anything. */
+const WRIST_BEND = 0.18;
+/**
+ * Where a relaxed palm faces, before the forearm's own direction is taken out: towards the body's middle
+ * (palms to the thighs when the arms hang, to the head when they're up), else down (arms out to the
+ * sides), and a little forward.
+ */
+const PALM_INWARD = 1, PALM_DOWN = 0.6, PALM_FORWARD = 0.35;
+/** A forearm reaching across the body (arms crossed, hand to the other shoulder) lays its palm on the chest. */
+const PALM_TO_CHEST = 2.5;
+
 /**
  * Finds a Mixamo-standard bone such as "RightForeArm". Mixamo files name it "mixamorig:RightForeArm"
  * (GLTFLoader drops the ':'), Ready Player Me files use the bare name; both are accepted.
@@ -118,6 +143,7 @@ export class RealCoach implements CoachView {
   readonly group = new Group();
   private readonly motion = new CoachMotion();
   private readonly arms: Record<Side, Chain>;
+  private readonly hands: Record<Side, HandRig>;
   private readonly spine: Bone;
   private readonly hips: Bone;
   private readonly neck: Bone;
@@ -192,6 +218,18 @@ export class RealCoach implements CoachView {
       hand: findBone(model, `${side}Hand`),
     });
     this.arms = { L: chain('Right'), R: chain('Left') };
+    const handRig = (side: 'Left' | 'Right'): HandRig => {
+      const finger = (name: string) => [1, 2, 3, 4].map((i) => tryBone(model, `${side}Hand${name}${i}`)).filter((b): b is Bone => b !== null);
+      const rig: HandRig = {
+        index: tryBone(model, `${side}HandIndex1`),
+        middle: tryBone(model, `${side}HandMiddle1`),
+        pinky: tryBone(model, `${side}HandPinky1`),
+        fingers: ['Thumb', 'Index', 'Middle', 'Ring', 'Pinky'].map(finger).filter((f) => f.length >= 2),
+        palmSign: 1,
+      };
+      return rig;
+    };
+    this.hands = { L: handRig('Right'), R: handRig('Left') };
     this.spine = findBone(model, 'Spine');
     this.hips = findBone(model, 'Hips');
     this.neck = findBone(model, 'Neck');
@@ -202,6 +240,17 @@ export class RealCoach implements CoachView {
     this.leg = { L: findBone(model, 'RightLeg'), R: findBone(model, 'LeftLeg') };
     for (const b of [this.arms.L.arm, this.arms.L.fore, this.arms.R.arm, this.arms.R.fore, this.spine, this.hips, this.neck, this.upLeg.L, this.upLeg.R, this.leg.L, this.leg.R]) {
       this.rest.set(b, b.quaternion.clone());
+    }
+    // Hands and fingers are posed every frame too, so they start from rest each time.
+    for (const s of ['L', 'R'] as const) {
+      this.rest.set(this.arms[s].hand, this.arms[s].hand.quaternion.clone());
+      for (const f of this.hands[s].fingers) for (const b of f) this.rest.set(b, b.quaternion.clone());
+    }
+    // In the model's rest pose (arms out, a T-pose) palms face down: that fixes which way "palm" is.
+    model.updateMatrixWorld(true);
+    for (const s of ['L', 'R'] as const) {
+      const n = this.palmNormal(s, 1);
+      if (n && n.y > 0) this.hands[s].palmSign = -1;
     }
     this.leftHip = findBone(model, 'LeftUpLeg');
     this.rightHip = findBone(model, 'RightUpLeg');
@@ -281,8 +330,62 @@ export class RealCoach implements CoachView {
       const { arm, fore, hand } = this.arms[s];
       pointBone(arm, fore, dirAt(p.dir[s] - p.bend[s] / 2));
       pointBone(fore, hand, dirAt(p.dir[s] + p.bend[s] / 2));
+      this.turnPalm(s, -sign);
+      this.relaxHand(s);
     }
     this.plantFeet();
+  }
+
+  /** Which way the palm faces (world, unit), from the knuckles; null on a rig without finger bones. */
+  private palmNormal(s: Side, sign = this.hands[s].palmSign): Vector3 | null {
+    const { index, middle, pinky } = this.hands[s];
+    if (!index || !middle || !pinky) return null;
+    const wrist = this.arms[s].hand.getWorldPosition(new Vector3());
+    const along = middle.getWorldPosition(new Vector3()).sub(wrist);
+    const across = index.getWorldPosition(new Vector3()).sub(pinky.getWorldPosition(new Vector3()));
+    const n = along.cross(across);
+    return n.lengthSq() > 1e-12 ? n.normalize().multiplyScalar(sign) : null;
+  }
+
+  /**
+   * Turns the forearm about its own length so the palm faces the way a relaxed dancer's does.
+   * Aiming the arm alone leaves this twist to chance, which is what made palms face backwards.
+   * `inward` is +1 when the body's middle is towards +x from this arm.
+   */
+  private turnPalm(s: Side, inward: number): void {
+    const { fore, hand } = this.arms[s];
+    const n = this.palmNormal(s);
+    if (!n) return;
+    const axis = hand.getWorldPosition(new Vector3()).sub(fore.getWorldPosition(new Vector3())).normalize();
+    // The more the forearm points across the body, the more the palm turns to face the chest instead.
+    const across = Math.max(0, axis.x * inward);
+    const want = new Vector3(inward * PALM_INWARD, -PALM_DOWN, PALM_FORWARD - PALM_TO_CHEST * across);
+    // Only the turn about the forearm counts: take the forearm's own direction out of both.
+    want.addScaledVector(axis, -want.dot(axis));
+    n.addScaledVector(axis, -n.dot(axis));
+    if (want.lengthSq() < 1e-6 || n.lengthSq() < 1e-6) return;
+    const angle = Math.atan2(axis.dot(n.clone().cross(want)), n.dot(want));
+    rotateWorld(fore, axis, angle);
+  }
+
+  /** A relaxed hand: the wrist bends a little and the fingers curl towards the palm. */
+  private relaxHand(s: Side): void {
+    const { hand } = this.arms[s];
+    const rig = this.hands[s];
+    const n = this.palmNormal(s);
+    if (!n || !rig.middle) return;
+    // Rotating about (bone direction × palm normal) moves the bone's end towards the palm.
+    const towardsPalm = (joint: Bone, child: Object3D, angle: number) => {
+      const r = child.getWorldPosition(new Vector3()).sub(joint.getWorldPosition(new Vector3()));
+      const axis = r.cross(n);
+      if (axis.lengthSq() < 1e-12) return;
+      rotateWorld(joint, axis.normalize(), angle);
+    };
+    towardsPalm(hand, rig.middle, WRIST_BEND);
+    rig.fingers.forEach((finger, f) => {
+      const curl = f === 0 ? THUMB_CURL : FINGER_CURL;
+      for (let j = 0; j + 1 < finger.length && j < curl.length; j++) towardsPalm(finger[j], finger[j + 1], curl[j]);
+    });
   }
 
   /**
