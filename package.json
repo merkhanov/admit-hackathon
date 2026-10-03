@@ -13,7 +13,8 @@
     "extract:dance": "node scripts/extract-dance.mjs",
     "import:avatars": "node scripts/import-avatars.mjs",
     "check:arms": "node scripts/check-arms.mjs",
-    "import:catalog": "node scripts/import-catalog.mjs"
+    "import:catalog": "node scripts/import-catalog.mjs",
+    "check:tracking": "node scripts/check-tracking.mjs"
   },
   "devDependencies": {
     "@types/three": "0.186.0",

@@ -1,0 +1,168 @@
+<!doctype html>
+<!-- Used by scripts/check-tracking.mjs. -->
+<meta charset="utf-8" />
+<canvas id="c" width="640" height="480"></canvas>
+<script type="module">
+  /*
+   * Feedback loop for arm tracking. A rigged dancer performs a song's choreography in front of a virtual
+   * camera; every frame goes through MediaPipe Pose (the game's model, in VIDEO mode, frame after frame
+   * like the webcam) and then through the game's own tracker and judge. The truth is the dancer's bones,
+   * projected into the same image, with each wrist marked hidden when the body is in front of it.
+   *
+   * Counted per frame, per arm, after the game's tracker:
+   *  - swapped: the arm the game measures points where the OTHER arm really is
+   *  - wrong: direction more than 35° off the truth while the wrist is in plain view
+   *  - invented: the game treats a hidden wrist as seen and gets its direction wrong
+   *  - jump: the measured direction leaps more than 50° in one frame while the true arm moves under 15°
+   *  - broken: forearm or upper arm drawn at under half or over twice its true on-screen length
+   */
+  import { Color, DirectionalLight, HemisphereLight, PerspectiveCamera, Raycaster, Scene, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
+  import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
+  import { RealCoach } from '/src/stage/realCoach.ts';
+  import { poseAt } from '/src/dance/motion.ts';
+  import { beatLength, buildSong } from '/src/dance/song.ts';
+  import { SONGS } from '/src/dance/songs.ts';
+  import { initTracker, stepTracker } from '/src/pose/tracker.ts';
+  import { features } from '/src/pose/features.ts';
+  import { bodyAngles, angleDiff } from '/src/dance/judge.ts';
+
+  const W = 640, H = 480, ASPECT = W / H;
+  const canvas = document.getElementById('c');
+  const renderer = new WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.outputColorSpace = SRGBColorSpace;
+  const ATTRACT = buildSong('attract', 'Motion Dance', 112, ['wings', 'up', 'discoL', 'discoR', 'muscles', 'leanL', 'leanR', 'vee']);
+  // MediaPipe landmark index -> the dancer's bone. A dancer facing the camera has her own left on the image's right,
+  // exactly like a person in front of a webcam (the game mirrors the picture only for display).
+  const BONES = { 11: 'LeftArm', 12: 'RightArm', 13: 'LeftForeArm', 14: 'RightForeArm', 15: 'LeftHand', 16: 'RightHand', 23: 'LeftUpLeg', 24: 'RightUpLeg', 0: 'Head' };
+
+  let landmarker = null;
+  // MediaPipe in VIDEO mode needs timestamps that only grow, across songs too.
+  let clock = 1000;
+  window.setup = async () => {
+    const fileset = await FilesetResolver.forVisionTasks('/node_modules/@mediapipe/tasks-vision/wasm');
+    landmarker = await PoseLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: `/.cache/mediapipe/pose_landmarker_${window.MODEL ?? 'lite'}.task`, delegate: 'CPU' },
+      runningMode: 'VIDEO', numPoses: 1,
+    });
+  };
+
+  const bone = (root, name) => { let f = null; root.traverse((o) => { if (!f && o.isBone && o.name.replace(/^.*mixamorig:?/, '') === name) f = o; }); return f; };
+
+  window.run = async ({ model, song: songId, seconds, start = 0 }) => {
+    const song = songId === 'attract' ? ATTRACT : SONGS.find((s) => s.song.id === songId).song;
+    const scene = new Scene();
+    scene.background = new Color(0xd9d2e4);
+    scene.add(new HemisphereLight(0xffffff, 0x8a7fa0, 2.0));
+    const key = new DirectionalLight(0xffffff, 2.0); key.position.set(1, 3, 4); scene.add(key);
+    const dancer = await RealCoach.load(model);
+    scene.add(dancer.group);
+    // A laptop webcam as the game asks the player to stand: the dancer (2.25 units, a 1.7 m person) about
+    // 2 m away, the lens at chest height with a 50° vertical view, so raised hands and the hips fit.
+    const camera = new PerspectiveCamera(50, ASPECT, 0.1, 50);
+    camera.position.set(0, 1.55, 3.4);
+    camera.lookAt(0, 1.3, 0);
+    const bones = Object.fromEntries(Object.entries(BONES).map(([i, n]) => [i, bone(dancer.group, n)]));
+    const ray = new Raycaster();
+    const project = (v) => { const p = v.clone().project(camera); return { x: (p.x + 1) / 2, y: (1 - p.y) / 2 }; };
+    // Is a point hidden from the camera by the dancer's own body (anything but the hand itself)?
+    const hidden = (world) => {
+      const dir = world.clone().sub(camera.position);
+      const dist = dir.length();
+      ray.set(camera.position, dir.normalize());
+      ray.far = dist - 0.06;
+      return ray.intersectObject(dancer.group, true).length > 0;
+    };
+
+    let tracker = initTracker(), truthTracker = initTracker();
+    const dt = 1 / 30;
+    const stats = { frames: 0, measured: 0, swapped: 0, wrong: 0, invented: 0, jump: 0, broken: 0, lost: 0 };
+    const bad = [];
+    let prev = null;
+    const lengths = {};
+    const t0 = 2; // a still second first, so both trackers calibrate on a neutral pose
+    for (let k = 0; k * dt < seconds + t0; k++) {
+      const tSong = start + Math.max(0, k * dt - t0);
+      const target = k * dt < t0 ? null : poseAt(song, tSong + 0.12);
+      const beat = tSong / beatLength(song);
+      dancer.update(target, beat - Math.floor(beat), Math.floor(beat), dt);
+      scene.updateMatrixWorld(true);
+      renderer.render(scene, camera);
+      clock += Math.round(dt * 1000);
+      const ms = clock;
+      const result = landmarker.detectForVideo(canvas, ms);
+      const raw = result.landmarks[0] ?? null;
+
+      // The truth as landmarks: projected bones, with hidden wrists and elbows marked invisible.
+      const truth = Array.from({ length: 33 }, () => ({ x: 0.5, y: 0.5, visibility: 0 }));
+      const vis = {};
+      for (const [i, b] of Object.entries(bones)) {
+        const w = b.getWorldPosition(new Vector3());
+        const p = project(w);
+        vis[i] = !hidden(w);
+        truth[i] = { x: p.x, y: p.y, visibility: vis[i] ? 1 : 0.1 };
+      }
+      truth[0] = { ...truth[0], visibility: 1 };
+      const out = stepTracker(tracker, raw, ms, ASPECT); tracker = out.state;
+      const tout = stepTracker(truthTracker, truth, ms, ASPECT); truthTracker = tout.state;
+      if (k === 70 && window.DEBUG) console.log('[DEBUG-trk] ' + JSON.stringify([11, 13, 15, 12, 14, 16].map((i) => [i, truth[i].x.toFixed(3), truth[i].y.toFixed(3), raw?.[i]?.x.toFixed(3), raw?.[i]?.y.toFixed(3)])));
+      if (k * dt < t0) continue;
+      stats.frames++;
+      const got = bodyAngles(out.features, null), want = bodyAngles(tout.features, null);
+      if (!got || !want) { stats.lost++; continue; }
+      for (const s of ['L', 'R']) {
+        const o = s === 'L' ? 'R' : 'L';
+        const g = got.arms[s], w = want.arms[s];
+        const wristIdx = s === 'L' ? 15 : 16;
+        const seen = vis[wristIdx];
+        if (!g.ok) continue;
+        stats.measured++;
+        const err = Math.abs(angleDiff(g.dir, w.dir));
+        // Swapped: closer to where the other arm really is, and the two arms are really apart.
+        const otherDir = -want.arms[o].dir;
+        const swap = Math.abs(angleDiff(g.dir, otherDir)) < 20 && err > 45 && Math.abs(angleDiff(w.dir, otherDir)) > 60;
+        if (swap) stats.swapped++;
+        else if (err > 35 && seen) stats.wrong++;
+        if (!seen && err > 35) stats.invented++;
+        if (prev) {
+          const step = Math.abs(angleDiff(g.dir, prev.got[s])), truthStep = Math.abs(angleDiff(w.dir, prev.want[s]));
+          if (step > 50 && truthStep < 15) stats.jump++;
+        }
+        // Anatomy: each segment of the arm the game draws keeps its own length, in shoulder widths.
+        // Broken = a segment suddenly at under half or over twice its typical length (the median so far).
+        const L = out.pose;
+        if (L && out.features.present) {
+          const [si, ei, wi] = s === 'L' ? [11, 13, 15] : [12, 14, 16];
+          const sw = out.features.sw;
+          const len = (a, b, P) => Math.hypot((P[a].x - P[b].x) * ASPECT, P[a].y - P[b].y) / sw;
+          for (const [a, b, seg] of [[si, ei, 'upper'], [ei, wi, 'fore']]) {
+            const key = s + seg;
+            const hist = (lengths[key] ??= []);
+            const l = len(a, b, L);
+            const typical = hist.length >= 15 ? [...hist].sort((x, y) => x - y)[hist.length >> 1] : null;
+            // Foreshortening is real: an arm pointing at the camera looks short, so only count it when the truth didn't shorten too.
+            const truthLen = len(a, b, truth) * (sw / Math.max(1e-6, tout.features.present ? tout.features.sw : sw));
+            const truthHist = (lengths['t' + key] ??= []);
+            const truthTypical = truthHist.length >= 15 ? [...truthHist].sort((x, y) => x - y)[truthHist.length >> 1] : null;
+            hist.push(l); truthHist.push(truthLen);
+            if (!typical || !truthTypical || !vis[b]) continue;
+            const r = l / typical, tr = truthLen / truthTypical;
+            if ((r < 0.5 || r > 2) && Math.abs(Math.log(r / tr)) > Math.log(1.8)) {
+              stats.broken++;
+              (stats.brokenWhere ??= {})[seg] = ((stats.brokenWhere ?? {})[seg] ?? 0) + 1;
+              if ((stats.brokenSamples ??= []).length < 6) stats.brokenSamples.push({ t: +tSong.toFixed(2), arm: s, seg, game: +r.toFixed(2), truth: +tr.toFixed(2), move: target?.name });
+              break;
+            }
+          }
+        }
+        const rawArms = raw ? bodyAngles(features(raw, ASPECT), null) : null;
+        const rawDir = rawArms ? Math.round(rawArms.arms[s].dir) : null;
+        if ((swap || (err > 35 && seen) || (!seen && err > 35)) && bad.length < 40) {
+          bad.push({ t: +tSong.toFixed(2), move: target?.name, arm: s, want: Math.round(w.dir), got: Math.round(g.dir), raw: rawDir, seen, vis: +(raw?.[wristIdx]?.visibility ?? 0).toFixed(2) });
+        }
+      }
+      prev = { got: { L: got.arms.L.dir, R: got.arms.R.dir }, want: { L: want.arms.L.dir, R: want.arms.R.dir } };
+    }
+    return { stats, bad };
+  };
+  window.ready = true;
+</script>
