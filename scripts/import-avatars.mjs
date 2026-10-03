@@ -1,6 +1,7 @@
 // Builds the multiplayer avatars public/avatars/*.glb from three characters of the 100 Avatars
 // collection by Polygonal Mind (CC0, public domain: free to use, change and publish). The source
 // VRM files live on Arweave; this downloads them, shrinks their textures and saves small GLBs.
+// It also draws a portrait of each character, Michelle included, for the shop.
 // The results are committed, so a normal build needs neither this script nor the network.
 //
 //   pnpm import:avatars
@@ -46,6 +47,17 @@ try {
     const out = `public/avatars/${AVATARS[i].name}.glb`;
     writeFileSync(out, glb);
     console.log(`${AVATARS[i].title} (${(sources[i].length / 1e6).toFixed(1)} MB) -> ${out} (${(statSync(out).size / 1e6).toFixed(1)} MB)`);
+  }
+  // Portraits for the shop, Michelle's too (her model is fetched by fetch-models.mjs; the picture is ours).
+  const shots = await browser.newPage();
+  shots.on('pageerror', (e) => console.error('page error:', e.message));
+  await shots.goto(`${server.resolvedUrls.local[0]}scripts/portraits.html`);
+  await shots.waitForFunction(() => window.ready, null, { timeout: 60_000 });
+  for (const name of ['michelle', ...AVATARS.map((x) => x.name)]) {
+    const model = name === 'michelle' ? '/models/michelle.glb' : `/avatars/${name}.glb`;
+    const png = await shots.evaluate((url) => window.portrait(url), model);
+    writeFileSync(`public/avatars/${name}.png`, Buffer.from(png.split(',')[1], 'base64'));
+    console.log(`portrait -> public/avatars/${name}.png`);
   }
 } finally {
   await browser.close();

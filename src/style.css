@@ -1001,6 +1001,9 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 }
 .shop-item.worn { border-color: var(--grape); background: var(--white); }
 .shop-item strong { font: 900 0.85rem/1.15 var(--font); }
+/* A character's card: their face instead of a colour dot. */
+.portrait { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; background: linear-gradient(oklch(0.93 0.06 300), oklch(0.97 0.03 350)); box-shadow: inset 0 0 0 3px oklch(1 0 0 / 0.7); }
+.shop-btn.worn:disabled { background: var(--grape-deep); color: var(--white); cursor: default; }
 .swatch { width: 40px; height: 40px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 3px oklch(1 0 0 / 0.6), 0 2px 6px oklch(0.27 0.07 290 / 0.25); }
 /* Hats: a dome on a brim. */
 .swatch-hat { border-radius: 50% 50% 8px 8px / 70% 70% 8px 8px; height: 30px; margin-top: 6px; border-bottom: 6px solid color-mix(in oklch, var(--c), black 25%); }
@@ -1038,6 +1041,7 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   .shop-head h2 { font-size: 1.15rem; }
   .shop-item { padding: 8px 4px 6px; gap: 4px; }
   .swatch { width: 30px; height: 30px; }
+  .portrait { width: 56px; height: 56px; }
   .swatch-hat { height: 22px; }
   .shop-btn { padding: 6px 4px; font-size: 0.72rem; }
 }

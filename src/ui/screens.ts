@@ -1,6 +1,7 @@
 import { COUNTDOWN_S, countdownLeft, RESTART_LOCK_S, STEP_TIMEOUT_S, STEP_WARN_S, WARMUP, WARMUP_HOLD_S, type Flow } from '../app/flow.ts';
 import type { ScoreEntry } from '../app/leaderboard.ts';
-import { SHOP, SLOTS, type ShopItem, type Wallet } from '../app/wallet.ts';
+import { owns, SHOP, SLOTS, type ShopItem, type Wallet } from '../app/wallet.ts';
+import { CHARACTERS } from '../stage/characters.ts';
 import type { PartAccuracy } from '../app/summary.ts';
 import type { FileStatus } from '../app/tracks.ts';
 import { ratingName, type Rating } from '../dance/dance.ts';
@@ -154,14 +155,20 @@ function fileHtml(status: FileStatus): string {
 const coinButton = (w: Wallet) => `<button id="shop-open" class="coin-btn" type="button" aria-haspopup="dialog"><i class="coin" aria-hidden="true"></i>${esc(t('shop.coins', { n: w.coins }))}<span>· ${esc(t('shop.open'))}</span></button>`;
 
 function shopItemHtml(item: ShopItem, w: Wallet): string {
-  const owned = w.owned.includes(item.id);
-  const worn = w.worn[item.slot] === item.id;
+  const owned = owns(w, item.id);
+  // Michelle dances until another character is chosen.
+  const worn = w.worn[item.slot] === item.id || (item.character === 'michelle' && !w.worn.character);
   const short = item.price - w.coins;
+  const who = item.slot === 'character';
+  const label = who ? t(worn ? 'shop.chosen' : 'shop.choose') : t(worn ? 'shop.takeOff' : 'shop.wear');
   const button = owned
-    ? `<button class="shop-btn ${worn ? 'worn' : ''}" type="button" data-wear="${esc(item.id)}" aria-pressed="${worn}">${esc(t(worn ? 'shop.takeOff' : 'shop.wear'))}</button>`
+    ? `<button class="shop-btn ${worn ? 'worn' : ''}" type="button" data-wear="${esc(item.id)}" aria-pressed="${worn}"${who && worn ? ' disabled' : ''}>${esc(label)}</button>`
     : `<button class="shop-btn buy" type="button" data-buy="${esc(item.id)}"${short > 0 ? ' disabled' : ''}>${esc(short > 0 ? t('shop.short', { n: short }) : t('shop.buy', { price: item.price }))}</button>`;
-  return `<li class="shop-item ${worn ? 'worn' : ''}">
-      <span class="swatch swatch-${item.slot}" style="--c:${item.swatch}" aria-hidden="true"></span>
+  const picture = item.character
+    ? `<img class="portrait" src="${import.meta.env.BASE_URL}${CHARACTERS[item.character].portrait}" alt="" width="72" height="72" loading="lazy" />`
+    : `<span class="swatch swatch-${item.slot}" style="--c:${item.swatch}" aria-hidden="true"></span>`;
+  return `<li class="shop-item ${worn ? 'worn' : ''}${who ? ' shop-character' : ''}">
+      ${picture}
       <strong>${esc(tryT(item.name) ?? item.id)}</strong>
       ${button}
     </li>`;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buy, coinsFor, earn, newWallet, parseWallet, SHOP, STARTING_COINS, toggleWear, wornLook } from '../src/app/wallet.ts';
+import { buy, coinsFor, earn, newWallet, parseWallet, SHOP, STARTING_COINS, toggleWear, wornLook, owns } from '../src/app/wallet.ts';
 
 describe('clothes shop', () => {
   it('a new player has coins to try the shop at once', () => {
@@ -42,5 +42,30 @@ describe('clothes shop', () => {
     expect(parseWallet('not json').coins).toBe(STARTING_COINS);
     const w = parseWallet(JSON.stringify({ coins: 12, owned: ['top-pink', 'free-crown'], worn: { top: 'top-pink', hat: 'hat-crown' } }));
     expect(w).toEqual({ coins: 12, owned: ['top-pink'], worn: { top: 'top-pink' } });
+  });
+});
+
+describe('characters in the shop', () => {
+  it('Michelle is free and dances by default; a bought character takes her place', () => {
+    const w = newWallet();
+    expect(owns(w, 'character-michelle')).toBe(true);
+    expect(wornLook(w).character).toBeUndefined();
+    const r = buy(w, 'character-juanita');
+    expect(r.ok).toBe(true);
+    expect(r.wallet.coins).toBe(w.coins - 100);
+    expect(wornLook(r.wallet).character).toBe('juanita');
+  });
+
+  it('someone always dances: choosing a character again keeps it, choosing Michelle switches back', () => {
+    const w = buy({ ...newWallet(), coins: 1000 }, 'character-snailkid').wallet;
+    expect(wornLook(toggleWear(w, 'character-snailkid')).character).toBe('snailkid');
+    expect(wornLook(toggleWear(w, 'character-michelle')).character).toBeUndefined();
+  });
+
+  it('a saved character survives a reload, a made-up one does not', () => {
+    const saved = JSON.stringify({ coins: 5, owned: ['character-eugenia'], worn: { character: 'character-eugenia' } });
+    expect(wornLook(parseWallet(saved)).character).toBe('eugenia');
+    const forged = JSON.stringify({ coins: 5, owned: [], worn: { character: 'character-eugenia' } });
+    expect(wornLook(parseWallet(forged)).character).toBeUndefined();
   });
 });

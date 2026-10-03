@@ -12,6 +12,8 @@ export interface PlayerLook {
   pants?: number;
   hair?: number;
   hat?: 'cap' | 'papakha' | 'bow' | 'crown' | 'kalpak';
+  /** Who they dance as, when not the coach Michelle. An unknown name falls back to their slot's character. */
+  character?: string;
 }
 
 /** A move's rating, as in dance/dance.ts. */

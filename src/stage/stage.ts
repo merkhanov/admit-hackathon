@@ -9,6 +9,7 @@ import type { MoveTarget } from '../dance/moves.ts';
 import { Coach, type CoachView, type Outfit } from './coach.ts';
 import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
+import { CHARACTERS, isCharacter, type CharacterId, type Dressing } from './characters.ts';
 import { CREW_LOOKS, type Look } from './outfits.ts';
 import { THEMES, type StageTheme } from './themes.ts';
 import { t } from '../i18n.ts';
@@ -30,6 +31,10 @@ interface CrewAvatar {
   pose: MoveTarget | null;
   /** The clothes the avatar has on, to change them only when the player's change. */
   worn: string;
+  /** Who the avatar is: the player's chosen character, or null while it shows the slot's own model. */
+  character: CharacterId | null;
+  /** A character being loaded for this avatar, so a quick change of mind doesn't swap twice. */
+  loading: CharacterId | null;
   /** 1 right after a miss, fading to 0: the avatar flinches and the ring glows red. */
   flinch: number;
   /** 1 right after a perfect, fading to 0: the ring glows green. */
@@ -61,8 +66,8 @@ export interface CrewMember {
   score: number;
   /** Their latest pose, or null when none arrived recently (the avatar grooves in place). */
   pose: MoveTarget | null;
-  /** Clothes they bought in the shop and wear, over their slot's look. */
-  look?: Partial<Look>;
+  /** Clothes they bought in the shop and wear, over their slot's look, and the character they chose. */
+  look?: Partial<Look> & { character?: string };
 }
 
 /** Where avatars stand: beside the coach, a little behind, smaller. Up to three other players. */
@@ -96,8 +101,8 @@ export interface StageView {
   draw(frame: StageFrame, dt: number): void;
   /** Colours and the coach's costume for a song. */
   setTheme(theme: StageTheme): void;
-  /** The player's clothes from the shop, worn by the coach; a hat replaces the song's. Null for none. */
-  setLook(look: Partial<Look> | null): void;
+  /** The player's character and clothes from the shop; a hat replaces the song's. Null for none. */
+  setLook(look: Dressing | null): void;
 }
 
 /** A neon dance stage with the coach. Visual only: no game rules here. */
@@ -124,7 +129,9 @@ export class Stage implements StageView {
   private readonly crewOwn: boolean[] = CREW_LOOKS.map(() => false);
   private crewLoading = false;
   /** The player's clothes from the shop, on the coach. */
-  private look: Partial<Look> | null = null;
+  private look: Dressing | null = null;
+  /** Who dances in the middle: Michelle unless the player chose another character in the shop. */
+  private coachCharacter: CharacterId = 'michelle';
   private readonly tagLayer: HTMLDivElement;
   private theme: StageTheme = THEMES.neon;
   private readonly wall: Mesh<PlaneGeometry, MeshBasicMaterial>;
@@ -209,11 +216,12 @@ export class Stage implements StageView {
     this.scene.add(this.coach.group);
     RealCoach.load(`${import.meta.env.BASE_URL}${DANCER_MODEL}`).then(
       (real) => {
+        // A character chosen in the shop already took the stage.
+        if (this.coachCharacter !== 'michelle') return;
         this.scene.remove(this.coach.group);
-        real.setHat(this.look?.hat ?? this.theme.hat);
-        real.wear(this.look);
         this.coach = real;
         this.scene.add(real.group);
+        this.dressCoach();
       },
       (err: unknown) => console.warn('Dancer model unavailable, keeping the cartoon coach', err),
     );
@@ -272,8 +280,9 @@ export class Stage implements StageView {
         .catch(() => RealCoach.load(`${base}${DANCER_MODEL}`, { ...size, look }))
         .then((real) => {
           this.crewModels[slot] = real;
-          // Swap the cartoon placeholder for the real model if that slot is already on stage.
-          for (const a of this.crew.values()) if (a.slot === slot) this.placeAvatar(a, real);
+          // Swap the cartoon placeholder for the real model if that slot is already on stage,
+          // unless its player chose a character of their own.
+          for (const a of this.crew.values()) if (a.slot === slot && a.character === null && a.loading === null) this.placeAvatar(a, real);
         }, (err: unknown) => console.warn('Avatar model unavailable, keeping the cartoon figure', err));
     });
   }
@@ -325,7 +334,7 @@ export class Stage implements StageView {
         ring.rotation.x = -Math.PI / 2;
         ring.position.set(CREW_SLOTS[slot].x, 0.03, CREW_SLOTS[slot].z);
         this.scene.add(ring);
-        a = { coach, tag, pop, ring, slot, pose: null, worn: '', flinch: 0, shine: 0 };
+        a = { coach, tag, pop, ring, slot, pose: null, worn: '', character: null, loading: null, flinch: 0, shine: 0 };
         this.crew.set(m.id, a);
       }
       a.pose = m.pose;
@@ -335,13 +344,31 @@ export class Stage implements StageView {
     }
   }
 
-  /** An avatar wears its slot's look with the player's own clothes on top. */
-  private dressAvatar(a: CrewAvatar, look: Partial<Look> | null): void {
+  /** An avatar is the character the player chose (or its slot's own), with the player's clothes on. */
+  private dressAvatar(a: CrewAvatar, look: (Partial<Look> & { character?: string }) | null): void {
+    const chosen = isCharacter(look?.character) ? look.character : null;
+    if (chosen !== a.character && chosen !== a.loading) {
+      a.loading = chosen;
+      const url = `${import.meta.env.BASE_URL}${chosen ? CHARACTERS[chosen].model : CREW_MODELS[a.slot]}`;
+      RealCoach.load(url, { height: 2.25 * CREW_SCALE, castShadow: false }).then((real) => {
+        // Skip if the player changed their mind again, or left the room, while this one loaded.
+        if (a.loading !== chosen || ![...this.crew.values()].includes(a)) return;
+        a.loading = null;
+        a.character = chosen;
+        this.placeAvatar(a, real);
+      }, (err: unknown) => { a.loading = null; console.warn('Avatar character unavailable', err); });
+    }
     const key = JSON.stringify(look ?? {});
     if (key === a.worn) return;
     a.worn = key;
-    // A character of its own was drawn in its own colours: recolouring it like the coach would spoil it.
-    if (this.crewOwn[a.slot] && a.coach === this.crewModels[a.slot]) {
+    // Only Michelle's texture has the regions the shop recolours; the other characters keep their own colours.
+    const michelle = a.character === 'michelle';
+    if (michelle) {
+      a.coach.wear(look);
+      a.coach.setHat(look?.hat ?? 'none');
+      return;
+    }
+    if (a.character || (this.crewOwn[a.slot] && a.coach === this.crewModels[a.slot])) {
       a.coach.setHat(look?.hat ?? 'none');
       return;
     }
@@ -351,9 +378,27 @@ export class Stage implements StageView {
     a.coach.setHat(merged.hat);
   }
 
-  setLook(look: Partial<Look> | null): void {
+  setLook(look: Dressing | null): void {
     this.look = look;
-    this.coach.wear(look);
+    const who = look?.character ?? 'michelle';
+    if (who !== this.coachCharacter) {
+      this.coachCharacter = who;
+      RealCoach.load(`${import.meta.env.BASE_URL}${CHARACTERS[who].model}`).then((real) => {
+        // The player may have chosen someone else while this one loaded.
+        if (this.coachCharacter !== who) return;
+        this.scene.remove(this.coach.group);
+        this.coach = real;
+        this.scene.add(real.group);
+        this.dressCoach();
+      }, (err: unknown) => console.warn('Character unavailable, keeping the current dancer', err));
+    }
+    this.dressCoach();
+  }
+
+  /** The dancer in the middle wears the shop's clothes when they fit (Michelle), and a hat in any case. */
+  private dressCoach(): void {
+    const look = this.look;
+    this.coach.wear(CHARACTERS[this.coachCharacter].dressable ? look : null);
     this.coach.setHat(look?.hat ?? this.theme.hat);
   }
 

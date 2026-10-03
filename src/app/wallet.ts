@@ -1,9 +1,10 @@
 import type { Rating } from '../dance/dance.ts';
+import type { CharacterId } from '../stage/characters.ts';
 import type { Hat } from '../stage/themes.ts';
 
-/** Where a piece of clothing goes. */
-export type Slot = 'top' | 'pants' | 'hair' | 'hat';
-export const SLOTS: readonly Slot[] = ['top', 'pants', 'hair', 'hat'];
+/** Where a piece of clothing goes; 'character' is who dances. */
+export type Slot = 'character' | 'top' | 'pants' | 'hair' | 'hat';
+export const SLOTS: readonly Slot[] = ['character', 'top', 'pants', 'hair', 'hat'];
 
 export interface ShopItem {
   id: string;
@@ -12,6 +13,7 @@ export interface ShopItem {
   /** Colour hue for tops, trousers and hair, 0..360. */
   hue?: number;
   hat?: Exclude<Hat, 'none'>;
+  character?: CharacterId;
   /** Swatch colour shown in the shop. */
   swatch: string;
   /** Translation key of its name. */
@@ -23,8 +25,12 @@ const colour = (slot: Slot, key: string, hue: number, swatch: string, price: num
 const hat = (key: Exclude<Hat, 'none'>, price: number, swatch: string): ShopItem =>
   ({ id: `hat-${key}`, slot: 'hat', price, hat: key, swatch, name: `hat.${key}` });
 
-/** Everything the shop sells: cheap colours, pricier hats. */
+const character = (key: CharacterId, price: number): ShopItem =>
+  ({ id: `character-${key}`, slot: 'character', price, character: key, swatch: '', name: `character.${key}` });
+
+/** Everything the shop sells: characters first (Michelle is free and worn by default), cheap colours, pricier hats. */
 export const SHOP: readonly ShopItem[] = [
+  character('michelle', 0), character('juanita', 100), character('snailkid', 150), character('eugenia', 200),
   colour('top', 'pink', 330, '#fe8dc5', 30), colour('top', 'mint', 162, '#56f3c1', 30),
   colour('top', 'sky', 205, '#8cd1fa', 40), colour('top', 'sunshine', 50, '#ffda4b', 40),
   colour('top', 'grape', 285, '#8140d0', 50), colour('top', 'coral', 10, '#fe8b85', 50),
@@ -38,6 +44,9 @@ export const SHOP: readonly ShopItem[] = [
 ];
 
 export const shopItem = (id: string): ShopItem | undefined => SHOP.find((i) => i.id === id);
+
+/** Free items (Michelle) belong to everyone. */
+export const owns = (w: Wallet, id: string): boolean => w.owned.includes(id) || shopItem(id)?.price === 0;
 
 export interface Wallet {
   coins: number;
@@ -61,17 +70,18 @@ export type BuyResult = { wallet: Wallet; ok: true } | { wallet: Wallet; ok: fal
 export function buy(w: Wallet, id: string): BuyResult {
   const item = shopItem(id);
   if (!item) return { wallet: w, ok: false, reason: 'unknown' };
-  if (w.owned.includes(id)) return { wallet: w, ok: false, reason: 'owned' };
+  if (owns(w, id)) return { wallet: w, ok: false, reason: 'owned' };
   if (w.coins < item.price) return { wallet: w, ok: false, reason: 'coins' };
   return { wallet: { coins: w.coins - item.price, owned: [...w.owned, id], worn: { ...w.worn, [item.slot]: id } }, ok: true };
 }
 
-/** Puts on an owned item, or takes it off if it is already worn. */
+/** Puts on an owned item, or takes it off if it is already worn. Someone always dances, so a character only switches. */
 export function toggleWear(w: Wallet, id: string): Wallet {
   const item = shopItem(id);
-  if (!item || !w.owned.includes(id)) return w;
+  if (!item || !owns(w, id)) return w;
   const worn = { ...w.worn };
-  if (worn[item.slot] === id) delete worn[item.slot];
+  if (item.slot === 'character') worn.character = id;
+  else if (worn[item.slot] === id) delete worn[item.slot];
   else worn[item.slot] = id;
   return { ...w, worn };
 }
@@ -80,6 +90,8 @@ export const earn = (w: Wallet, coins: number): Wallet => ({ ...w, coins: w.coin
 
 /** Clothes worn from the shop: hues for the parts bought and a hat, nothing for the rest. */
 export interface WornLook {
+  /** Who dances, when not Michelle. */
+  character?: CharacterId;
   top?: number;
   pants?: number;
   hair?: number;
@@ -92,6 +104,7 @@ export function wornLook(w: Wallet): WornLook {
   for (const slot of SLOTS) {
     const item = w.worn[slot] ? shopItem(w.worn[slot]) : undefined;
     if (!item) continue;
+    if (slot === 'character' && item.character && item.character !== 'michelle') look.character = item.character;
     if (slot === 'hat' && item.hat) look.hat = item.hat;
     if (slot === 'top' && item.hue !== undefined) look.top = item.hue;
     if (slot === 'pants' && item.hue !== undefined) look.pants = item.hue;
@@ -114,7 +127,7 @@ export function parseWallet(raw: string | null): Wallet {
     if (typeof o.worn === 'object' && o.worn !== null) {
       for (const slot of SLOTS) {
         const id = (o.worn as Record<string, unknown>)[slot];
-        if (typeof id === 'string' && owned.includes(id) && shopItem(id)?.slot === slot) worn[slot] = id;
+        if (typeof id === 'string' && (owned.includes(id) || shopItem(id)?.price === 0) && shopItem(id)?.slot === slot) worn[slot] = id;
       }
     }
     return { coins, owned, worn };
