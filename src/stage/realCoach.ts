@@ -21,7 +21,7 @@ const ACROSS_FORWARD = 0.9;
 const HEAD_RADIUS = 0.8;
 const HAT_SEAT = 1.08;
 
-interface Chain { arm: Bone; fore: Bone; hand: Bone }
+interface Chain { arm: Bone; fore: Bone; hand: Bone; collar: Bone | null }
 
 /** A hand's bones: the knuckles that show which way the palm faces, and each finger's joints, base to tip. */
 interface HandRig {
@@ -40,6 +40,11 @@ const THUMB_CURL = [0.15, 0.2, 0.15];
 /** The wrist bends a little towards the palm, as a hand does when it isn't holding anything. */
 const WRIST_BEND = 0.18;
 /**
+ * A hand reaching across the body (to the other shoulder, onto the head) bends at the wrist to rest on it,
+ * fingers down, instead of sticking out past the shoulder: this times how far across the forearm points.
+ */
+const WRIST_REST = 1.6;
+/**
  * Where a relaxed palm faces, before the forearm's own direction is taken out: towards the body's middle
  * (palms to the thighs when the arms hang, to the head when they're up), else down (arms out to the
  * sides), and a little forward.
@@ -47,6 +52,15 @@ const WRIST_BEND = 0.18;
 const PALM_INWARD = 1, PALM_DOWN = 0.6, PALM_FORWARD = 0.35;
 /** A forearm reaching across the body (arms crossed, hand to the other shoulder) lays its palm on the chest. */
 const PALM_TO_CHEST = 2.5;
+/**
+ * The body as solids the arms must stay out of: the torso an elliptic cylinder (as wide and as deep as
+ * these shares of the shoulder width) from the hips to the neck, the head an ellipsoid.
+ */
+const TORSO_HALF_WIDTH = 0.36, TORSO_HALF_DEPTH = 0.3, HEAD_RADIUS_SHARE = 1.05;
+/** Each try aims a segment that would go into the body this much further towards the camera. */
+const CLEAR_STEPS = [0, 0.25, 0.5, 0.8, 1.2, 1.7, 2.4];
+/** Raising an arm above the shoulder lifts the collarbone up to this much (radians), as a real shoulder does. */
+const SHRUG = 0.32;
 
 /**
  * Finds a Mixamo-standard bone such as "RightForeArm". Mixamo files name it "mixamorig:RightForeArm"
@@ -216,6 +230,7 @@ export class RealCoach implements CoachView {
       arm: findBone(model, `${side}Arm`),
       fore: findBone(model, `${side}ForeArm`),
       hand: findBone(model, `${side}Hand`),
+      collar: tryBone(model, `${side}Shoulder`),
     });
     this.arms = { L: chain('Right'), R: chain('Left') };
     const handRig = (side: 'Left' | 'Right'): HandRig => {
@@ -244,6 +259,8 @@ export class RealCoach implements CoachView {
     // Hands and fingers are posed every frame too, so they start from rest each time.
     for (const s of ['L', 'R'] as const) {
       this.rest.set(this.arms[s].hand, this.arms[s].hand.quaternion.clone());
+      const collar = this.arms[s].collar;
+      if (collar) this.rest.set(collar, collar.quaternion.clone());
       for (const f of this.hands[s].fingers) for (const b of f) this.rest.set(b, b.quaternion.clone());
     }
     // In the model's rest pose (arms out, a T-pose) palms face down: that fixes which way "palm" is.
@@ -326,14 +343,61 @@ export class RealCoach implements CoachView {
 
     for (const s of ['L', 'R'] as const) {
       const sign = s === 'L' ? -1 : 1;
-      const dirAt = (deg: number) => new Vector3(sign * Math.sin(deg * RAD), -Math.cos(deg * RAD), TOWARD_CAMERA + ACROSS_FORWARD * Math.max(0, -Math.sin(deg * RAD))).normalize();
-      const { arm, fore, hand } = this.arms[s];
-      pointBone(arm, fore, dirAt(p.dir[s] - p.bend[s] / 2));
-      pointBone(fore, hand, dirAt(p.dir[s] + p.bend[s] / 2));
+      const dirAt = (deg: number, forward = 0) => new Vector3(sign * Math.sin(deg * RAD), -Math.cos(deg * RAD), TOWARD_CAMERA + forward + ACROSS_FORWARD * Math.max(0, -Math.sin(deg * RAD))).normalize();
+      const { arm, fore, hand, collar } = this.arms[s];
+      // An arm raised above the shoulder lifts the collarbone with it (the outer end goes up).
+      const raise = Math.max(0, Math.min(1, (Math.abs(p.dir[s]) - 90) / 90));
+      if (collar && raise > 0) rotateWorld(collar, new Vector3(0, 0, 1), sign * SHRUG * raise);
+      // Aim each segment, and if it would go into the body, aim it further towards the camera.
+      const body = this.bodySolids();
+      this.aimClear(arm, fore, (f) => dirAt(p.dir[s] - p.bend[s] / 2, f), body, [fore]);
+      this.aimClear(fore, hand, (f) => dirAt(p.dir[s] + p.bend[s] / 2, f), body, [hand], 0.5);
       this.turnPalm(s, -sign);
-      this.relaxHand(s);
+      this.relaxHand(s, -sign);
     }
     this.plantFeet();
+  }
+
+  /** The torso and head as solids, in world space, for this frame's pose of the spine and neck. */
+  private bodySolids(): { hips: Vector3; neck: Vector3; head: Vector3; headR: number; halfW: number; halfD: number } {
+    const hips = this.hips.getWorldPosition(new Vector3());
+    const neck = this.neck.getWorldPosition(new Vector3());
+    const head = this.head.getWorldPosition(new Vector3());
+    const top = this.head.localToWorld(this.headTop.clone());
+    const sw = this.arms.L.arm.getWorldPosition(new Vector3()).distanceTo(this.arms.R.arm.getWorldPosition(new Vector3()));
+    return { hips, neck, head: head.add(top).multiplyScalar(0.5), headR: top.distanceTo(head) * 0.5 * HEAD_RADIUS_SHARE, halfW: sw * TORSO_HALF_WIDTH, halfD: sw * TORSO_HALF_DEPTH };
+  }
+
+  /** How deep a point is inside the torso or head (0 outside). */
+  private static inside(p: Vector3, b: ReturnType<RealCoach['bodySolids']>): number {
+    // Torso: between hips and neck, an ellipse in x (width) and z (depth) around the spine line.
+    const axis = b.neck.clone().sub(b.hips);
+    const t = Math.max(0, Math.min(1, p.clone().sub(b.hips).dot(axis) / axis.lengthSq()));
+    const c = b.hips.clone().addScaledVector(axis, t);
+    let depth = 0;
+    if (t > 0.02 && t < 0.98) {
+      const e = ((p.x - c.x) / b.halfW) ** 2 + ((p.z - c.z) / b.halfD) ** 2;
+      if (e < 1) depth = 1 - e;
+    }
+    const d = p.distanceTo(b.head) / b.headR;
+    if (d < 1) depth = Math.max(depth, 1 - d);
+    return depth;
+  }
+
+  /**
+   * Points `bone` at `child` along `dirFor(forward)`, starting straight and leaning the segment more
+   * towards the camera until the points `ends` (and `extra` of the segment's length beyond the last,
+   * the fingers) and the segment's middle stay out of the torso and head.
+   */
+  private aimClear(bone: Bone, child: Object3D, dirFor: (forward: number) => Vector3, body: ReturnType<RealCoach['bodySolids']>, ends: Object3D[], extra = 0): void {
+    for (const f of CLEAR_STEPS) {
+      pointBone(bone, child, dirFor(f));
+      const a = bone.getWorldPosition(new Vector3());
+      const z = child.getWorldPosition(new Vector3());
+      const probes = [a.clone().lerp(z, 0.5), a.clone().lerp(z, 0.8), ...ends.map((o) => o.getWorldPosition(new Vector3()))];
+      if (extra > 0) probes.push(z.clone().addScaledVector(z.clone().sub(a), extra));
+      if (!probes.some((q) => RealCoach.inside(q, body) > 0)) return;
+    }
   }
 
   /** Which way the palm faces (world, unit), from the knuckles; null on a rig without finger bones. */
@@ -369,8 +433,10 @@ export class RealCoach implements CoachView {
   }
 
   /** A relaxed hand: the wrist bends a little and the fingers curl towards the palm. */
-  private relaxHand(s: Side): void {
-    const { hand } = this.arms[s];
+  private relaxHand(s: Side, inward: number): void {
+    const { fore, hand } = this.arms[s];
+    const axis = hand.getWorldPosition(new Vector3()).sub(fore.getWorldPosition(new Vector3())).normalize();
+    const across = Math.max(0, axis.x * inward);
     const rig = this.hands[s];
     const n = this.palmNormal(s);
     if (!n || !rig.middle) return;
@@ -382,6 +448,17 @@ export class RealCoach implements CoachView {
       rotateWorld(joint, axis.normalize(), angle);
     };
     towardsPalm(hand, rig.middle, WRIST_BEND);
+    // A hand on the other shoulder (the forearm goes up and across, the hand stays below the head)
+    // rests on it: the fingers turn to point down instead of sticking out past the shoulder.
+    const belowHead = hand.getWorldPosition(new Vector3()).y < this.neck.getWorldPosition(new Vector3()).y;
+    const onShoulder = belowHead && axis.y > 0.2 ? across : 0;
+    if (onShoulder > 0.05) {
+      const fingers = rig.middle.getWorldPosition(new Vector3()).sub(hand.getWorldPosition(new Vector3())).normalize();
+      const down = new Vector3(0, -1, 0);
+      const axis = fingers.clone().cross(down);
+      const angle = Math.acos(Math.max(-1, Math.min(1, fingers.dot(down))));
+      if (axis.lengthSq() > 1e-8) rotateWorld(hand, axis.normalize(), angle * Math.min(1, onShoulder * WRIST_REST));
+    }
     rig.fingers.forEach((finger, f) => {
       const curl = f === 0 ? THUMB_CURL : FINGER_CURL;
       for (let j = 0; j + 1 < finger.length && j < curl.length; j++) towardsPalm(finger[j], finger[j + 1], curl[j]);
