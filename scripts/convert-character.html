@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- Used by scripts/import-avatars.mjs: turns a glTF or VRM character into a small GLB in the browser. -->
+<meta charset="utf-8" />
+<script type="module">
+  import { GLTFExporter } from 'three/addons/exporters/GLTFExporter.js';
+  import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+  const toBase64 = (glb) => {
+    const bytes = new Uint8Array(glb);
+    let text = '';
+    for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(text);
+  };
+
+  /** A glTF or VRM character: same meshes and skeleton, textures shrunk, opaque ones as JPEG. */
+  window.convertGltf = async (url) => {
+    const gltf = await new GLTFLoader().loadAsync(url);
+    const model = gltf.scene;
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+        const opaque = !m.transparent && !(m.alphaTest > 0);
+        for (const t of [m.map, m.normalMap, m.emissiveMap]) if (t) t.userData.mimeType = opaque || t !== m.map ? 'image/jpeg' : 'image/png';
+      }
+    });
+    return toBase64(await new GLTFExporter().parseAsync(model, { binary: true, maxTextureSize: 1024, onlyVisible: true }));
+  };
+  window.ready = true;
+</script>

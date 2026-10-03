@@ -72,10 +72,11 @@ const CREW_SCALE = 0.62;
 const TAG_HEIGHT = 2.95 * CREW_SCALE;
 const DANCER_MODEL = 'models/michelle.glb';
 /**
- * Other players' characters, one per slot: Mixamo characters in the coach's style, added by
- * scripts/import-mixamo.mjs. A missing file falls back to the coach's model in that slot's look.
+ * Other players' characters, one per slot: Juanita, SnailKid and Eugenia from the CC0 100 Avatars
+ * collection (scripts/import-avatars.mjs). They keep their own colours; a missing file falls back to
+ * the coach's model dressed in that slot's look.
  */
-const CREW_MODELS: readonly string[] = ['models/crew-1.glb', 'models/crew-2.glb', 'models/crew-3.glb'];
+const CREW_MODELS: readonly string[] = ['avatars/juanita.glb', 'avatars/snailkid.glb', 'avatars/eugenia.glb'];
 const CREW_OUTFITS: readonly Outfit[] = [
   { top: 0x56f3c1, pants: 0x8140d0, hair: 0x271f46 },
   { top: 0xffda4b, pants: 0x8cd1fa, hair: 0xfe8b85 },
@@ -119,6 +120,8 @@ export class Stage implements StageView {
   private readonly crew = new Map<string, CrewAvatar>();
   /** Realistic avatar per slot once loaded; until then the slot shows a cartoon figure. */
   private readonly crewModels: (RealCoach | null)[] = CREW_LOOKS.map(() => null);
+  /** Slots whose own character loaded. They keep their colours; only a hat from the shop goes on. */
+  private readonly crewOwn: boolean[] = CREW_LOOKS.map(() => false);
   private crewLoading = false;
   /** The player's clothes from the shop, on the coach. */
   private look: Partial<Look> | null = null;
@@ -265,6 +268,7 @@ export class Stage implements StageView {
     const size = { height: 2.25 * CREW_SCALE, castShadow: false };
     CREW_LOOKS.forEach((look, slot) => {
       RealCoach.load(`${base}${CREW_MODELS[slot]}`, size)
+        .then((own) => { this.crewOwn[slot] = true; return own; })
         .catch(() => RealCoach.load(`${base}${DANCER_MODEL}`, { ...size, look }))
         .then((real) => {
           this.crewModels[slot] = real;
@@ -336,6 +340,11 @@ export class Stage implements StageView {
     const key = JSON.stringify(look ?? {});
     if (key === a.worn) return;
     a.worn = key;
+    // A character of its own was drawn in its own colours: recolouring it like the coach would spoil it.
+    if (this.crewOwn[a.slot] && a.coach === this.crewModels[a.slot]) {
+      a.coach.setHat(look?.hat ?? 'none');
+      return;
+    }
     const base = CREW_LOOKS[a.slot % CREW_LOOKS.length];
     const merged = { ...base, ...(look ?? {}) };
     a.coach.wear(merged);
