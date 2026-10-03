@@ -77,6 +77,24 @@ export const MOVES: Record<MoveId, MoveTarget> = {
   whipR: { name: 'Камча справа', arms: { L: REINS, R: arm(165, 110) }, tilt: 0, squat: false },
 };
 
+/** An arm direction put back in (-180, 180]. */
+export const wrapDir = (d: number): number => d - 360 * Math.ceil((d - 180) / 360);
+
+/** Above the shoulder: an arm swings over the head only between two directions this high. */
+const OVERHEAD = 90;
+
+/**
+ * The signed turn (degrees) that takes an arm from direction `from` to `to` the way a person's goes.
+ * That is the short way round, unless the short way passes over the head on the way to or from a low
+ * arm: from straight up to low across the body, the hand comes down past the side, not across the face.
+ */
+export function armTurn(from: number, to: number): number {
+  const a = wrapDir(from), b = wrapDir(to);
+  const plain = b - a;
+  const overTop = Math.abs(plain) > 180;
+  return overTop && Math.abs(a) >= OVERHEAD && Math.abs(b) >= OVERHEAD ? plain - Math.sign(plain) * 360 : plain;
+}
+
 /**
  * Signed elbow bend for drawing: the upper arm points at `dir - bend / 2`, the forearm at `dir + bend / 2`.
  * A negative bend puts the elbow on the low side.

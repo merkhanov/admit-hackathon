@@ -80,6 +80,8 @@ const SLICE = 0.04;
 const CLEAR_STEPS = [0, 0.25, 0.5, 0.8, 1.2, 1.7, 2.4];
 /** Degrees the whole arm swings, up or down, to take a hand off the face. */
 const LIFT_STEPS = [0, 12, 24, 36, 48];
+/** How fast that swing grows when the face needs it, and eases off when it doesn't (degrees a second). */
+const SWING_GROW = 360, SWING_EASE = 90;
 /** Raising an arm above the shoulder lifts the collarbone up to this much (radians), as a real shoulder does. */
 const SHRUG = 0.32;
 
@@ -186,6 +188,8 @@ export class RealCoach implements CoachView {
   private readonly flex: Record<Side, Vector3>;
   /** How each arm was turned last frame, so it carries on from there instead of jumping or flipping. */
   private readonly turned: Record<Side, Turns> = { L: NO_TURNS, R: NO_TURNS };
+  /** How far each arm was swung off the face last frame (degrees, see update). */
+  private readonly swung: Record<Side, number> = { L: 0, R: 0 };
   /** The body the arms must stay out of, measured from the mesh; null if the model has no skinned mesh. */
   private readonly body: BodyProfile | null;
   /**
@@ -408,11 +412,11 @@ export class RealCoach implements CoachView {
       // Aim the upper arm, then the forearm and hand; whatever would go into the body is aimed further
       // towards the camera until the elbow, forearm, palm and fingertips are all clear of it. A hand that
       // would still cover the face (a big-headed character's arms are short for the pose) swings the
-      // whole arm up over the head or down to the chest, whichever is nearer, until the face shows.
-      let swing = 0;
+      // whole arm out, over the head or down to the chest until the face shows.
+      // The swing is degrees added to the arm's direction, away from hanging: + further up, - back down.
       let turns = this.turned[s];
-      for (const lift of LIFT_STEPS) {
-        const at = (deg: number, f: number) => dirAt(deg + swing * lift * Math.sign(deg || 1), f);
+      const pose = (swingDeg: number) => {
+        const at = (deg: number, f: number) => dirAt(deg + swingDeg * Math.sign(deg || 1), f);
         // Aim from rest, not from the last try's turned arm: the turns below are measured from there.
         arm.quaternion.copy(this.rest.get(arm) ?? arm.quaternion);
         for (const f of CLEAR_STEPS) {
@@ -430,14 +434,29 @@ export class RealCoach implements CoachView {
           const probes = this.handProbes(s);
           if (!this.anyInside(probes) && !this.behindFront(probes.slice(0, 3))) break;
         }
+      };
+      let swing = 0, need = 0;
+      for (const lift of LIFT_STEPS) {
+        need = swing * lift;
+        pose(need);
         if (!this.overFace(this.handProbes(s).slice(2))) break;
-        // Hands meant above the head go up over it; a low elbow (arms crossed) goes down to the chest.
-        // Anything else covers the face on purpose (the dab hides it in the elbow).
+        // A hand raised on its own side opens outward (arms up become a V; over the head it would reach
+        // the other side and the arms would look swapped); one reaching across above the head goes up
+        // over it; a low elbow (arms crossed) goes down to the chest. Anything else covers the face on
+        // purpose (the dab hides it in the elbow).
         if (swing === 0) {
-          swing = Math.abs(p.dir[s]) >= 120 ? 1 : fore.getWorldPosition(new Vector3()).y < arm.getWorldPosition(new Vector3()).y ? -1 : 0;
+          const low = fore.getWorldPosition(new Vector3()).y < arm.getWorldPosition(new Vector3()).y;
+          swing = p.dir[s] >= 120 ? -1 : p.dir[s] <= -120 ? 1 : low ? -1 : 0;
           if (swing === 0) break;
         }
       }
+      // Decided afresh every frame, the swing flicked on and off between frames and the arm with it.
+      // It goes towards what's needed quickly and lets go slowly, so it settles instead of flickering.
+      const last = this.swung[s];
+      const growing = Math.abs(need) > Math.abs(last) && need * last >= 0;
+      const swung = follow(last, need, (growing ? SWING_GROW : SWING_EASE) * dt);
+      if (swung !== need) pose(swung);
+      this.swung[s] = swung;
       this.turned[s] = turns;
     }
     this.plantFeet();
@@ -537,10 +556,14 @@ export class RealCoach implements CoachView {
     // The elbow is a hinge: it never bends backwards, and the upper arm turns in its socket until the
     // elbow's crease faces the way the forearm bends. Then aiming the forearm only bends the elbow.
     // A forearm left leaning back from the upper arm (the upper arm went forward to clear the body)
-    // comes forward to straight, instead of the elbow snapping back or the shoulder turning half round.
+    // comes towards the camera until it's straight, instead of the elbow snapping back or the shoulder
+    // turning half round. Only towards the camera: the arm's angle on screen is the dance's, and stays.
     const crease = this.flex[s].clone().applyQuaternion(arm.getWorldQuaternion(new Quaternion()));
     crease.addScaledVector(upper, -crease.dot(upper)).normalize();
-    dir = dir.clone().addScaledVector(crease, -Math.min(0, dir.dot(crease))).normalize();
+    const back = dir.dot(crease);
+    dir = dir.clone();
+    if (back < 0 && crease.z > 0.2) dir.z -= back / crease.z;
+    dir.normalize();
     const bend = dir.clone().addScaledVector(upper, -dir.dot(upper));
     const hinge = hingeWeight(bend.length());
     // An elbow that goes from bending up to bending down turns the upper arm half round: at a pace.

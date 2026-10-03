@@ -1,5 +1,5 @@
 import { BackSide, BoxGeometry, Color, Group, Mesh, MeshBasicMaterial, MeshToonMaterial, SphereGeometry, Vector3, type BufferGeometry, type Texture } from 'three';
-import { drawBend, type MoveTarget } from '../dance/moves.ts';
+import { armTurn, drawBend, wrapDir, type MoveTarget } from '../dance/moves.ts';
 import type { Side } from '../pose/features.ts';
 import { buildHat } from './hats.ts';
 import type { Look } from './outfits.ts';
@@ -31,6 +31,9 @@ export interface CoachView {
   wear(look: Partial<Look> | null): void;
 }
 
+/** How fast the coach eases towards the move (per second): about 18% of the way each frame at 60 fps. */
+const EASE_RATE = 12;
+
 /**
  * Eases the coach towards the move on screen, so it arrives on the beat instead of snapping.
  * Shared by both coaches, so each shows exactly the angles the judge scores.
@@ -39,17 +42,17 @@ export class CoachMotion {
   readonly pose: CoachPose = { dir: { L: 15, R: 15 }, bend: { L: 20, R: 20 }, tilt: 0, squat: 0 };
 
   step(target: MoveTarget | null, beatIndex: number, dt: number): CoachPose {
-    const k = Math.min(1, dt * 12);
+    // The same share of the way every second at any frame rate: a frame that comes late (the camera's
+    // pose model busy) doesn't snap the arms there, and a fast screen doesn't slow them.
+    const k = 1 - Math.exp(-dt * EASE_RATE);
     const p = this.pose;
     for (const s of ['L', 'R'] as const) {
       // Idle groove when no move is on screen.
       const dir = target ? target.arms[s].dir : 20 + Math.sin(beatIndex * 1.7 + (s === 'L' ? 0 : 2)) * 12;
       const bend = target ? drawBend(target.arms[s]) : 35;
-      // Ease the angle the short way round, so an arm never swings through the body.
-      let delta = dir - p.dir[s];
-      if (delta > 180) delta -= 360;
-      if (delta < -180) delta += 360;
-      p.dir[s] += delta * k;
+      // Ease the way a person's arm goes (down past the side, not over the head to a low arm), and keep
+      // the angle in (-180, 180]: one that kept growing past a turn read as a raised arm to the rig.
+      p.dir[s] = wrapDir(p.dir[s] + armTurn(p.dir[s], dir) * k);
       p.bend[s] += (bend - p.bend[s]) * k;
     }
     p.tilt += ((target?.tilt ?? 0) - p.tilt) * k;

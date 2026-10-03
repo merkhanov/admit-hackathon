@@ -1,5 +1,4 @@
-import { angleDiff } from './judge.ts';
-import { MOVES, type ArmTarget, type MoveId, type MoveTarget } from './moves.ts';
+import { MOVES, armTurn, wrapDir, type ArmTarget, type MoveId, type MoveTarget } from './moves.ts';
 import { clipSeconds, mocapPose } from './mocap.ts';
 import { beatLength, type Song } from './song.ts';
 
@@ -89,11 +88,11 @@ const depthOf = (m: MoveTarget) => m.depth ?? (m.squat ? 1 : 0);
 
 function blendArm(a: ArmTarget, b: ArmTarget, g: number): ArmTarget {
   const low = g < 0.5 ? a.low : b.low;
-  const arm: ArmTarget = { dir: a.dir + angleDiff(b.dir, a.dir) * g, elbow: a.elbow + (b.elbow - a.elbow) * g };
+  const arm: ArmTarget = { dir: wrapDir(a.dir + armTurn(a.dir, b.dir) * g), elbow: a.elbow + (b.elbow - a.elbow) * g };
   return low ? { ...arm, low } : arm;
 }
 
-/** A pose `g` of the way from `a` to `b`: arms swing the short way round, never through the body. */
+/** A pose `g` of the way from `a` to `b`: arms swing as a person's do (see armTurn), never through the body. */
 export function blendPose(a: MoveTarget, b: MoveTarget, g: number): MoveTarget {
   const depth = depthOf(a) + (depthOf(b) - depthOf(a)) * g;
   return {
