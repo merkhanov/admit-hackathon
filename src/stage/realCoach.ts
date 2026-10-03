@@ -1,4 +1,4 @@
-import { AnimationMixer, Bone, Box3, CanvasTexture, Group, Mesh, MeshStandardMaterial, Quaternion, Vector3, type AnimationClip, type Object3D, type Texture } from 'three';
+import { AnimationMixer, Bone, Box3, CanvasTexture, Group, Mesh, MeshStandardMaterial, Quaternion, SkinnedMesh, Vector3, type AnimationClip, type Object3D, type Texture } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
 import type { MoveTarget } from '../dance/moves.ts';
@@ -52,11 +52,13 @@ const WRIST_REST = 1.6;
 const PALM_INWARD = 1, PALM_DOWN = 0.6, PALM_FORWARD = 0.35;
 /** A forearm reaching across the body (arms crossed, hand to the other shoulder) lays its palm on the chest. */
 const PALM_TO_CHEST = 2.5;
-/**
- * The body as solids the arms must stay out of: the torso an elliptic cylinder (as wide and as deep as
- * these shares of the shoulder width) from the hips to the neck, the head an ellipsoid.
- */
-const TORSO_HALF_WIDTH = 0.36, TORSO_HALF_DEPTH = 0.3, HEAD_RADIUS_SHARE = 1.05;
+/** The body's cross-section at one height: a rounded rectangle around (cx, cz), half-width hw, half-depth hd. */
+interface Slice { cx: number; cz: number; hw: number; hd: number }
+/** The body measured from the mesh at rest, relative to the hips: slices from y0 up, and the head. */
+interface BodyProfile { y0: number; step: number; slices: (Slice | null)[]; headCentre: Vector3; headR: number }
+/** Height of one slice of the body profile, in scene units (the coach is 2.25 tall). */
+const SLICE = 0.04;
+
 /** Each try aims a segment that would go into the body this much further towards the camera. */
 const CLEAR_STEPS = [0, 0.25, 0.5, 0.8, 1.2, 1.7, 2.4];
 /** Raising an arm above the shoulder lifts the collarbone up to this much (radians), as a real shoulder does. */
@@ -158,6 +160,8 @@ export class RealCoach implements CoachView {
   private readonly motion = new CoachMotion();
   private readonly arms: Record<Side, Chain>;
   private readonly hands: Record<Side, HandRig>;
+  /** The body the arms must stay out of, measured from the mesh; null if the model has no skinned mesh. */
+  private readonly body: BodyProfile | null;
   private readonly spine: Bone;
   private readonly hips: Bone;
   private readonly neck: Bone;
@@ -276,6 +280,7 @@ export class RealCoach implements CoachView {
     this.hipsHome = this.group.worldToLocal(this.hips.getWorldPosition(new Vector3()));
     this.feet = ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase'].map((n) => tryBone(model, n)).filter((b): b is Bone => b !== null);
     this.footFloor = Math.min(...this.feet.map((f) => this.group.worldToLocal(f.getWorldPosition(new Vector3())).y));
+    this.body = measureBody(model, this.hips, this.head);
     if (clip) {
       this.mixer = new AnimationMixer(model);
       this.mixer.clipAction(clip).play();
@@ -348,56 +353,57 @@ export class RealCoach implements CoachView {
       // An arm raised above the shoulder lifts the collarbone with it (the outer end goes up).
       const raise = Math.max(0, Math.min(1, (Math.abs(p.dir[s]) - 90) / 90));
       if (collar && raise > 0) rotateWorld(collar, new Vector3(0, 0, 1), sign * SHRUG * raise);
-      // Aim each segment, and if it would go into the body, aim it further towards the camera.
-      const body = this.bodySolids();
-      this.aimClear(arm, fore, (f) => dirAt(p.dir[s] - p.bend[s] / 2, f), body, [fore]);
-      this.aimClear(fore, hand, (f) => dirAt(p.dir[s] + p.bend[s] / 2, f), body, [hand], 0.5);
-      this.turnPalm(s, -sign);
-      this.relaxHand(s, -sign);
+      // Aim the upper arm, then the forearm and hand; whatever would go into the body is aimed further
+      // towards the camera until the elbow, forearm, palm and fingertips are all clear of it.
+      for (const f of CLEAR_STEPS) {
+        pointBone(arm, fore, dirAt(p.dir[s] - p.bend[s] / 2, f));
+        if (!this.anyInside([arm.getWorldPosition(tmpA).lerp(fore.getWorldPosition(tmpB), 0.6), fore.getWorldPosition(new Vector3())])) break;
+      }
+      for (const f of CLEAR_STEPS) {
+        this.restHand(s);
+        pointBone(fore, hand, dirAt(p.dir[s] + p.bend[s] / 2, f));
+        this.turnPalm(s, -sign);
+        this.relaxHand(s, -sign);
+        if (!this.anyInside(this.handProbes(s))) break;
+      }
     }
     this.plantFeet();
   }
 
-  /** The torso and head as solids, in world space, for this frame's pose of the spine and neck. */
-  private bodySolids(): { hips: Vector3; neck: Vector3; head: Vector3; headR: number; halfW: number; halfD: number } {
+  /** Puts the hand and fingers back to rest, to pose them again. */
+  private restHand(s: Side): void {
+    const { hand } = this.arms[s];
+    const q = this.rest.get(hand);
+    if (q) hand.quaternion.copy(q);
+    for (const f of this.hands[s].fingers) for (const b of f) { const r = this.rest.get(b); if (r) b.quaternion.copy(r); }
+    hand.updateWorldMatrix(false, true);
+  }
+
+  /** Points along the forearm, the wrist, the knuckles and every fingertip: what must stay out of the body. */
+  private handProbes(s: Side): Vector3[] {
+    const { fore, hand } = this.arms[s];
+    const e = fore.getWorldPosition(new Vector3()), w = hand.getWorldPosition(new Vector3());
+    const out = [e.clone().lerp(w, 0.4), e.clone().lerp(w, 0.75), w];
+    for (const f of this.hands[s].fingers) out.push(f[f.length - 1].getWorldPosition(new Vector3()), f[Math.min(1, f.length - 1)].getWorldPosition(new Vector3()));
+    return out;
+  }
+
+  /** Is any point inside the body (torso, hips, thighs or head), as measured from the mesh at load? */
+  private anyInside(points: Vector3[]): boolean {
+    const body = this.body;
+    if (!body) return false;
     const hips = this.hips.getWorldPosition(new Vector3());
-    const neck = this.neck.getWorldPosition(new Vector3());
-    const head = this.head.getWorldPosition(new Vector3());
-    const top = this.head.localToWorld(this.headTop.clone());
-    const sw = this.arms.L.arm.getWorldPosition(new Vector3()).distanceTo(this.arms.R.arm.getWorldPosition(new Vector3()));
-    return { hips, neck, head: head.add(top).multiplyScalar(0.5), headR: top.distanceTo(head) * 0.5 * HEAD_RADIUS_SHARE, halfW: sw * TORSO_HALF_WIDTH, halfD: sw * TORSO_HALF_DEPTH };
-  }
-
-  /** How deep a point is inside the torso or head (0 outside). */
-  private static inside(p: Vector3, b: ReturnType<RealCoach['bodySolids']>): number {
-    // Torso: between hips and neck, an ellipse in x (width) and z (depth) around the spine line.
-    const axis = b.neck.clone().sub(b.hips);
-    const t = Math.max(0, Math.min(1, p.clone().sub(b.hips).dot(axis) / axis.lengthSq()));
-    const c = b.hips.clone().addScaledVector(axis, t);
-    let depth = 0;
-    if (t > 0.02 && t < 0.98) {
-      const e = ((p.x - c.x) / b.halfW) ** 2 + ((p.z - c.z) / b.halfD) ** 2;
-      if (e < 1) depth = 1 - e;
+    const head = this.head.localToWorld(body.headCentre.clone());
+    for (const p of points) {
+      if (p.distanceTo(head) < body.headR) return true;
+      const i = Math.floor((p.y - hips.y - body.y0) / body.step);
+      const sl = body.slices[i];
+      if (!sl) continue;
+      const x = p.x - hips.x, z = p.z - hips.z;
+      // A rounded rectangle: the hips and two trouser legs side by side are boxier than an ellipse.
+      if (((x - sl.cx) / sl.hw) ** 4 + ((z - sl.cz) / sl.hd) ** 4 < 1) return true;
     }
-    const d = p.distanceTo(b.head) / b.headR;
-    if (d < 1) depth = Math.max(depth, 1 - d);
-    return depth;
-  }
-
-  /**
-   * Points `bone` at `child` along `dirFor(forward)`, starting straight and leaning the segment more
-   * towards the camera until the points `ends` (and `extra` of the segment's length beyond the last,
-   * the fingers) and the segment's middle stay out of the torso and head.
-   */
-  private aimClear(bone: Bone, child: Object3D, dirFor: (forward: number) => Vector3, body: ReturnType<RealCoach['bodySolids']>, ends: Object3D[], extra = 0): void {
-    for (const f of CLEAR_STEPS) {
-      pointBone(bone, child, dirFor(f));
-      const a = bone.getWorldPosition(new Vector3());
-      const z = child.getWorldPosition(new Vector3());
-      const probes = [a.clone().lerp(z, 0.5), a.clone().lerp(z, 0.8), ...ends.map((o) => o.getWorldPosition(new Vector3()))];
-      if (extra > 0) probes.push(z.clone().addScaledVector(z.clone().sub(a), extra));
-      if (!probes.some((q) => RealCoach.inside(q, body) > 0)) return;
-    }
+    return false;
   }
 
   /** Which way the palm faces (world, unit), from the knuckles; null on a rig without finger bones. */
@@ -498,6 +504,59 @@ export class RealCoach implements CoachView {
     this.model.position.z -= hips.z - this.hipsHome.z;
     this.plantFeet();
   }
+}
+
+/**
+ * Measures the body at rest from the skinned mesh itself: for every slice of height from the thighs to
+ * the neck, the ellipse that holds the torso, hips and thighs (baggy trousers included), and the head as
+ * a ball. Vertices belong to the part whose bone moves them most.
+ */
+function measureBody(model: Object3D, hipsBone: Bone, headBone: Bone): BodyProfile | null {
+  model.updateMatrixWorld(true);
+  const hips = hipsBone.getWorldPosition(new Vector3());
+  const trunk: Vector3[] = [], head: Vector3[] = [];
+  const v = new Vector3();
+  model.traverse((o) => {
+    if (!(o instanceof SkinnedMesh)) return;
+    const names = o.skeleton.bones.map((b) => b.name.replace(/^.*mixamorig/, ''));
+    const si = o.geometry.attributes.skinIndex, sw = o.geometry.attributes.skinWeight, pos = o.geometry.attributes.position;
+    if (!si || !sw || !pos) return;
+    for (let i = 0; i < pos.count; i++) {
+      let best = 0, w = -1;
+      for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > w) { w = sw.getComponent(i, k); best = si.getComponent(i, k); }
+      const n = names[best] ?? '';
+      const isTrunk = /^(Hips|Spine\d?|Neck|LeftUpLeg|RightUpLeg)$/.test(n);
+      const isHead = /^Head$/.test(n);
+      if (!isTrunk && !isHead) continue;
+      o.getVertexPosition(i, v);
+      o.localToWorld(v);
+      (isTrunk ? trunk : head).push(v.clone().sub(hips));
+    }
+  });
+  if (trunk.length === 0) return null;
+  const y0 = Math.min(...trunk.map((p) => p.y));
+  const y1 = Math.max(...trunk.map((p) => p.y));
+  const slices: (Slice | null)[] = [];
+  for (let y = y0; y < y1; y += SLICE) {
+    // Each slice looks a little above and below too: long smooth parts (trouser legs) have few vertices.
+    const inSlice = trunk.filter((p) => p.y >= y - SLICE / 2 && p.y < y + SLICE * 1.5);
+    if (inSlice.length < 6) { slices.push(null); continue; }
+    const xs = inSlice.map((p) => p.x), zs = inSlice.map((p) => p.z);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minZ = Math.min(...zs), maxZ = Math.max(...zs);
+    slices.push({ cx: (minX + maxX) / 2, cz: (minZ + maxZ) / 2, hw: ((maxX - minX) / 2) * 1.04, hd: ((maxZ - minZ) / 2) * 1.04 });
+  }
+  // A slice still empty takes the larger of its neighbours, so there are no gaps to slip through.
+  for (let i = 0; i < slices.length; i++) {
+    if (slices[i]) continue;
+    const near = [slices[i - 1], slices[i + 1]].filter((s): s is Slice => !!s);
+    if (near.length) slices[i] = near.reduce((a, b) => (a.hw * a.hd > b.hw * b.hd ? a : b));
+  }
+  // The head: the face and skull, not the big hair buns (the median distance, not the farthest).
+  const c = head.reduce((a, p) => a.add(p), new Vector3()).multiplyScalar(1 / Math.max(1, head.length));
+  const d = head.map((p) => p.distanceTo(c)).sort((a, b) => a - b);
+  const headR = d.length ? d[Math.floor(d.length * 0.6)] : 0;
+  const headCentre = headBone.worldToLocal(c.add(hips));
+  return { y0, step: SLICE, slices, headCentre, headR };
 }
 
 const tmpA = new Vector3(), tmpB = new Vector3(), qWorld = new Quaternion(), qParent = new Quaternion(), qDelta = new Quaternion();
