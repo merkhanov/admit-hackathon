@@ -1,6 +1,6 @@
 import type { MoveEval, PartId } from '../dance/judge.ts';
 import { drawBend, type MoveTarget } from '../dance/moves.ts';
-import type { Side } from '../pose/features.ts';
+import { seen, type Side } from '../pose/features.ts';
 import { IDX, SKELETON } from '../pose/landmarks.ts';
 import type { TrackerOutput } from '../pose/tracker.ts';
 
@@ -56,6 +56,9 @@ export class PoseView {
     if (!out || !pose) return;
     const P = (i: number) => ({ x: (1 - pose[i].x) * W, y: pose[i].y * H });
     const f = out.features;
+    // An arm joint the model doesn't see isn't drawn, so a guessed limb never shows (MediaPipe's own
+    // drawing utilities skip unsure landmarks the same way).
+    const shown = (i: number) => !(LEFT_ARM.has(i) || RIGHT_ARM.has(i)) || seen(pose[i]);
     ctx.lineCap = 'round';
 
     if (target && f.present) {
@@ -87,6 +90,7 @@ export class PoseView {
     const body = match ? partColor(match, 'tilt') : IDLE;
     ctx.lineWidth = Math.max(3, W / 90);
     for (const [a, b] of SKELETON) {
+      if (!shown(a) || !shown(b)) continue;
       ctx.strokeStyle = LEFT_ARM.has(a) || LEFT_ARM.has(b) ? left : RIGHT_ARM.has(a) || RIGHT_ARM.has(b) ? right : body;
       const A = P(a), B = P(b);
       ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(B.x, B.y); ctx.stroke();
@@ -96,6 +100,7 @@ export class PoseView {
     ctx.beginPath(); ctx.arc(nose.x, nose.y, (f.present ? f.sw : 0.2) * H * 0.33, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#fff';
     for (const i of [IDX.NOSE, IDX.LEFT_SHOULDER, IDX.RIGHT_SHOULDER, IDX.LEFT_ELBOW, IDX.RIGHT_ELBOW, IDX.LEFT_WRIST, IDX.RIGHT_WRIST]) {
+      if (!shown(i)) continue;
       const q = P(i);
       ctx.beginPath(); ctx.arc(q.x, q.y, Math.max(2.5, W / 150), 0, Math.PI * 2); ctx.fill();
     }

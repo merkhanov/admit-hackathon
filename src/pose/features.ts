@@ -1,4 +1,4 @@
-import { IDX, type Pose } from './landmarks.ts';
+import { IDX, type Landmark, type Pose } from './landmarks.ts';
 
 export type Side = 'L' | 'R';
 
@@ -49,6 +49,12 @@ const inFrame = (x: number, y: number) => x >= 0.02 && x <= 0.98 && y >= 0 && y 
 
 const visibility = (v: number | undefined) => v ?? 1;
 
+/** The model really sees this joint: sure, likely and inside the frame, or above the top edge. */
+export function seen(p: Landmark): boolean {
+  const v = visibility(p.visibility);
+  return v >= SURE || (v >= LIKELY && inFrame(p.x, p.y)) || p.y < 0.05;
+}
+
 function angleAt(a: Point, b: Point, c: Point): number {
   const v1x = a.x - b.x, v1y = a.y - b.y, v2x = c.x - b.x, v2y = c.y - b.y;
   const d = Math.hypot(v1x, v1y) * Math.hypot(v2x, v2y) || 1;
@@ -72,7 +78,7 @@ export function features(pose: Pose | null, aspect: number): Features {
   const arm = (s: number, e: number, w: number, outward: 1 | -1): ArmFeatures => {
     const S = P(s), E = P(e), W = P(w);
     return {
-      ok: W.v >= SURE || (W.v >= LIKELY && inFrame(pose[w].x, pose[w].y)) || W.y < 0.05,
+      ok: seen(pose[w]),
       raise: (S.y - W.y) / sw,
       out: (outward * (W.x - S.x)) / sw,
       elbow: angleAt(S, E, W),
