@@ -31,32 +31,70 @@ export interface CoachView {
   wear(look: Partial<Look> | null): void;
 }
 
-/** How fast the coach eases towards the move (per second): about 18% of the way each frame at 60 fps. */
-const EASE_RATE = 12;
+/**
+ * How briskly the coach moves towards the move (radians a second): a critically damped spring, the way
+ * procedural animation moves a limb. It speeds up and slows down smoothly, where easing a share of the
+ * way each frame jumped to full speed every time the target moved (each beat, each friend's pose) and
+ * crawled in between: fast, slow, fast. Following a moving pose it trails by 2 / SPRING = 125 ms, the
+ * 120 ms the coach is driven ahead of the music (COACH_LEAD_S), so she lands on the beat.
+ */
+const SPRING = 16;
+/**
+ * The forearm trails the upper arm by how fast the arm swings (seconds of its motion), up to TRAIL_MAX
+ * degrees, and catches up as it stops: an arm, not a stiff branch turning at the shoulder.
+ */
+const TRAIL = 0.05;
+const TRAIL_MAX = 30;
 
 /**
- * Eases the coach towards the move on screen, so it arrives on the beat instead of snapping.
- * Shared by both coaches, so each shows exactly the angles the judge scores.
+ * One step of a critically damped spring towards a target that holds still for the step, exact for any
+ * `dt`. `error` is how far from the target, `v` the speed; returns both after the step.
+ */
+export function springStep(error: number, v: number, dt: number, rate = SPRING): [number, number] {
+  const decay = Math.exp(-rate * dt);
+  const pull = (v + rate * error) * dt;
+  return [(error + pull) * decay, (v - rate * pull) * decay];
+}
+
+const clamp = (v: number, max: number) => Math.max(-max, Math.min(max, v));
+
+/**
+ * Moves the coach towards the move on screen, so it arrives on the beat instead of snapping.
+ * Shared by both coaches; held still, each shows exactly the angles the judge scores.
  */
 export class CoachMotion {
+  /** What the coach shows: the springs below, with each forearm trailing its swing. */
   readonly pose: CoachPose = { dir: { L: 15, R: 15 }, bend: { L: 20, R: 20 }, tilt: 0, squat: 0 };
+  private readonly at: CoachPose = { dir: { L: 15, R: 15 }, bend: { L: 20, R: 20 }, tilt: 0, squat: 0 };
+  private readonly speed: CoachPose = { dir: { L: 0, R: 0 }, bend: { L: 0, R: 0 }, tilt: 0, squat: 0 };
 
-  step(target: MoveTarget | null, beatIndex: number, dt: number): CoachPose {
-    // The same share of the way every second at any frame rate: a frame that comes late (the camera's
-    // pose model busy) doesn't snap the arms there, and a fast screen doesn't slow them.
-    const k = 1 - Math.exp(-dt * EASE_RATE);
-    const p = this.pose;
+  /** `beat` is the music's beat, counting on through each one, so the idle groove flows instead of stepping. */
+  step(target: MoveTarget | null, beat: number, dt: number): CoachPose {
+    const at = this.at, speed = this.speed, p = this.pose;
     for (const s of ['L', 'R'] as const) {
       // Idle groove when no move is on screen.
-      const dir = target ? target.arms[s].dir : 20 + Math.sin(beatIndex * 1.7 + (s === 'L' ? 0 : 2)) * 12;
+      const dir = target ? target.arms[s].dir : 20 + Math.sin(beat * 1.7 + (s === 'L' ? 0 : 2)) * 12;
       const bend = target ? drawBend(target.arms[s]) : 35;
-      // Ease the way a person's arm goes (down past the side, not over the head to a low arm), and keep
-      // the angle in (-180, 180]: one that kept growing past a turn read as a raised arm to the rig.
-      p.dir[s] = wrapDir(p.dir[s] + armTurn(p.dir[s], dir) * k);
-      p.bend[s] += (bend - p.bend[s]) * k;
+      // The way a person's arm goes (down past the side, not over the head to a low arm), with the
+      // angle kept in (-180, 180]: one that kept growing past a turn read as a raised arm to the rig.
+      const [dirErr, dirV] = springStep(-armTurn(at.dir[s], dir), speed.dir[s], dt);
+      at.dir[s] = wrapDir(dir + dirErr);
+      speed.dir[s] = dirV;
+      const [bendErr, bendV] = springStep(at.bend[s] - bend, speed.bend[s], dt);
+      at.bend[s] = bend + bendErr;
+      speed.bend[s] = bendV;
+      // The upper arm leads; the forearm, and the hand with it, trails behind the swing.
+      const trail = clamp(speed.dir[s] * TRAIL, TRAIL_MAX);
+      p.dir[s] = wrapDir(at.dir[s] - trail / 2);
+      p.bend[s] = at.bend[s] - trail;
     }
-    p.tilt += ((target?.tilt ?? 0) - p.tilt) * k;
-    p.squat += ((target ? target.depth ?? (target.squat ? 1 : 0) : 0) - p.squat) * k;
+    const [tiltErr, tiltV] = springStep(at.tilt - (target?.tilt ?? 0), speed.tilt, dt);
+    at.tilt = p.tilt = (target?.tilt ?? 0) + tiltErr;
+    speed.tilt = tiltV;
+    const depth = target ? target.depth ?? (target.squat ? 1 : 0) : 0;
+    const [squatErr, squatV] = springStep(at.squat - depth, speed.squat, dt);
+    at.squat = p.squat = depth + squatErr;
+    speed.squat = squatV;
     return p;
   }
 }
@@ -178,7 +216,7 @@ export class Coach implements CoachView {
    * The pose eases towards the target, so the coach arrives on the beat instead of snapping.
    */
   update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number): void {
-    const p = this.motion.step(target, beatIndex, dt);
+    const p = this.motion.step(target, beatIndex + beatPhase, dt);
     for (const s of ['L', 'R'] as const) {
       const sign = s === 'L' ? -1 : 1; // screen-left arm swings out towards -x
       const upper = p.dir[s] - p.bend[s] / 2;

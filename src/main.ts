@@ -26,8 +26,7 @@ import { Hud, type Banner } from './ui/hud.ts';
 import { Scoreboard } from './ui/scoreboard.ts';
 import { MPManager } from './multiplayer/manager.ts';
 import { othersReady } from './multiplayer/session.ts';
-import { packPose, unpackPose } from './multiplayer/pose.ts';
-import type { CompactPose } from './multiplayer/types.ts';
+import { keepPose, packPose, poseAtTime, type PoseSample } from './multiplayer/pose.ts';
 import { loadPlayerName, makePlayerId } from './multiplayer/persistence.ts';
 import { PeerJSTransport } from './multiplayer/peerjs.ts';
 import { WebRTCTransport } from './multiplayer/webrtc.ts';
@@ -180,9 +179,9 @@ let warmupMissSince = 0;
 let lastLiveScoreAt = 0;
 /** Last time we streamed our pose to the room (ms). */
 let lastPoseAt = 0;
-/** Latest pose of every other player, with the time it arrived. */
-const remotePoses = new Map<string, { pose: CompactPose; at: number }>();
-mp.onPose((playerId, pose) => remotePoses.set(playerId, { pose, at: performance.now() }));
+/** Recent poses of every other player, with the time each arrived, oldest first. */
+const remotePoses = new Map<string, PoseSample[]>();
+mp.onPose((playerId, pose) => remotePoses.set(playerId, keepPose(remotePoses.get(playerId) ?? [], { pose, at: performance.now() })));
 // A friend's move was rated: their avatar flinches on a miss (desktops), and their scoreboard row flashes.
 mp.onVerdict((playerId, rating) => {
   stage.crewReact(playerId, rating);
@@ -201,8 +200,9 @@ function crewMembers(now: number): CrewMember[] {
   return Object.values(mp.getState().players)
     .filter((p) => p.id !== mp.self)
     .map((p) => {
-      const latest = remotePoses.get(p.id);
-      return { id: p.id, name: p.name, score: p.score, look: p.look, pose: latest && now - latest.at < POSE_STALE_MS ? unpackPose(latest.pose) : null };
+      const recent = remotePoses.get(p.id) ?? [];
+      const latest = recent[recent.length - 1];
+      return { id: p.id, name: p.name, score: p.score, look: p.look, pose: latest && now - latest.at < POSE_STALE_MS ? poseAtTime(recent, now) : null };
     });
 }
 

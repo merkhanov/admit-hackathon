@@ -78,6 +78,8 @@ const SLICE = 0.04;
 
 /** Each try aims a segment that would go into the body this much further towards the camera. */
 const CLEAR_STEPS = [0, 0.25, 0.5, 0.8, 1.2, 1.7, 2.4];
+/** How fast that aim grows when the body is in the way, and eases off when it isn't (per second). */
+const PUSH_GROW = 30, PUSH_EASE = 3;
 /** Degrees the whole arm swings, up or down, to take a hand off the face. */
 const LIFT_STEPS = [0, 12, 24, 36, 48];
 /** How fast that swing grows when the face needs it, and eases off when it doesn't (degrees a second). */
@@ -190,6 +192,8 @@ export class RealCoach implements CoachView {
   private readonly turned: Record<Side, Turns> = { L: NO_TURNS, R: NO_TURNS };
   /** How far each arm was swung off the face last frame (degrees, see update). */
   private readonly swung: Record<Side, number> = { L: 0, R: 0 };
+  /** How far each arm's upper arm and forearm were aimed towards the camera last frame (see CLEAR_STEPS). */
+  private readonly pushed: Record<Side, { upper: number; fore: number }> = { L: { upper: 0, fore: 0 }, R: { upper: 0, fore: 0 } };
   /** The body the arms must stay out of, measured from the mesh; null if the model has no skinned mesh. */
   private readonly body: BodyProfile | null;
   /**
@@ -364,7 +368,7 @@ export class RealCoach implements CoachView {
 
   update(target: MoveTarget | null, beatPhase: number, beatIndex: number, dt: number, clip: number | null = null): void {
     // Keep easing towards the target even while the recording plays, so handing back is smooth.
-    const p = this.motion.step(target, beatIndex, dt);
+    const p = this.motion.step(target, beatIndex + beatPhase, dt);
     if (clip !== null && this.mixer) {
       this.performRecording(clip);
       return;
@@ -415,25 +419,42 @@ export class RealCoach implements CoachView {
       // whole arm out, over the head or down to the chest until the face shows.
       // The swing is degrees added to the arm's direction, away from hanging: + further up, - back down.
       let turns = this.turned[s];
+      // How far each part is aimed towards the camera to clear the body. Searched afresh each frame, it
+      // jumped between steps, and an arm passing the hips suddenly pointed at the camera and back
+      // (a third of its length on screen, in one frame). It now moves there quickly and lets go slowly.
+      const lastPush = this.pushed[s];
+      let push = lastPush;
       const pose = (swingDeg: number) => {
         const at = (deg: number, f: number) => dirAt(deg + swingDeg * Math.sign(deg || 1), f);
+        const upperDeg = p.dir[s] - p.bend[s] / 2, foreDeg = p.dir[s] + p.bend[s] / 2;
         // Aim from rest, not from the last try's turned arm: the turns below are measured from there.
         arm.quaternion.copy(this.rest.get(arm) ?? arm.quaternion);
+        let needUpper = CLEAR_STEPS[CLEAR_STEPS.length - 1];
         for (const f of CLEAR_STEPS) {
-          pointBone(arm, fore, at(p.dir[s] - p.bend[s] / 2, f));
+          pointBone(arm, fore, at(upperDeg, f));
           const shoulder = arm.getWorldPosition(new Vector3()), elbow = fore.getWorldPosition(new Vector3());
           const upper = [0.4, 0.55, 0.7, 0.85, 1].map((t) => shoulder.clone().lerp(elbow, t));
-          if (!this.anyInside(upper) && !this.behindFront(upper)) break;
+          if (!this.anyInside(upper) && !this.behindFront(upper)) { needUpper = f; break; }
         }
+        // The upper arm, nearer the body, clears it twice as fast.
+        const upperPush = follow(lastPush.upper, needUpper, (needUpper > lastPush.upper ? 2 * PUSH_GROW : PUSH_EASE) * dt);
+        pointBone(arm, fore, at(upperDeg, upperPush));
         // Turning the upper arm about its length leaves the elbow where it is, so it's done per try below.
         const upperAim = arm.quaternion.clone();
-        for (const f of CLEAR_STEPS) {
+        const aimFore = (f: number) => {
           this.restHand(s);
-          turns = this.aimForearm(s, upperAim, at(p.dir[s] + p.bend[s] / 2, f), -sign, this.turned[s], dt);
+          turns = this.aimForearm(s, upperAim, at(foreDeg, f), -sign, this.turned[s], dt);
           this.relaxHand(s, -sign);
+        };
+        let needFore = CLEAR_STEPS[CLEAR_STEPS.length - 1];
+        for (const f of CLEAR_STEPS) {
+          aimFore(f);
           const probes = this.handProbes(s);
-          if (!this.anyInside(probes) && !this.behindFront(probes.slice(0, 3))) break;
+          if (!this.anyInside(probes) && !this.behindFront(probes.slice(0, 3))) { needFore = f; break; }
         }
+        const forePush = follow(lastPush.fore, needFore, (needFore > lastPush.fore ? PUSH_GROW : PUSH_EASE) * dt);
+        if (forePush !== needFore) aimFore(forePush);
+        push = { upper: upperPush, fore: forePush };
       };
       let swing = 0, need = 0;
       for (const lift of LIFT_STEPS) {
@@ -457,6 +478,7 @@ export class RealCoach implements CoachView {
       const swung = follow(last, need, (growing ? SWING_GROW : SWING_EASE) * dt);
       if (swung !== need) pose(swung);
       this.swung[s] = swung;
+      this.pushed[s] = push;
       this.turned[s] = turns;
     }
     this.plantFeet();
