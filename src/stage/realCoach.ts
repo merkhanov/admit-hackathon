@@ -36,11 +36,15 @@ interface HandRig {
   palmSign: number;
 }
 
-/** How far each finger joint curls towards the palm in a relaxed hand, base to tip (radians). */
-const FINGER_CURL = [0.3, 0.45, 0.3];
-const THUMB_CURL = [0.15, 0.2, 0.15];
-/** The wrist bends a little towards the palm, as a hand does when it isn't holding anything. */
-const WRIST_BEND = 0.18;
+/**
+ * How far each finger joint curls towards the palm in a relaxed hand, base to tip (radians). Kept small:
+ * the dance turns the palm to face the camera, and fingers curled towards the viewer read as a clawed,
+ * broken hand. About 20° per finger in all, so the hand looks open and soft, not flat.
+ */
+const FINGER_CURL = [0.08, 0.14, 0.1];
+const THUMB_CURL = [0.04, 0.06, 0.04];
+/** The wrist bends a touch towards the palm, as a hand does when it isn't holding anything. */
+const WRIST_BEND = 0.06;
 /**
  * A hand reaching across the body (to the other shoulder, onto the head) bends at the wrist to rest on it,
  * fingers down, instead of sticking out past the shoulder: this times how far across the forearm points.
