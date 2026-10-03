@@ -9,6 +9,7 @@ import { recolor, type Look } from './outfits.ts';
 import { adoptVrmSkeleton } from './vrm.ts';
 import { hiddenByTorso, measureTorso, type BodyPoint, type TorsoProfile } from './torso.ts';
 import type { Hat } from './themes.ts';
+import { TWIST_MAX, TWIST_SHARE, clampTurn, continuousTurn, hingeWeight } from './twist.ts';
 
 const RAD = Math.PI / 180;
 const HEIGHT = 2.25;
@@ -56,6 +57,16 @@ const WRIST_REST = 1.6;
  * sides), and a little forward.
  */
 const PALM_INWARD = 1, PALM_DOWN = 0.6, PALM_FORWARD = 0.35;
+/**
+ * Fastest an arm turns about its length (radians a second), at the shoulder for the elbow's hinge and
+ * along the forearm for the palm: quick, but never a jump between two frames.
+ */
+const TURN_RATE = 720 * RAD;
+/** How an arm is turned about its length: the upper arm for the elbow's hinge, and the palm (radians). */
+interface Turns { hinge: number | null; palm: number | null }
+const NO_TURNS: Turns = { hinge: null, palm: null };
+/** `goal`, or as far towards it from `prev` as `step` allows. */
+const follow = (prev: number | null, goal: number, step: number): number => (prev === null ? goal : prev + clampTurn(goal - prev, step));
 /** A forearm reaching across the body (arms crossed, hand to the other shoulder) lays its palm on the chest. */
 const PALM_TO_CHEST = 2.5;
 /** The body's cross-section at one height: a rounded rectangle around (cx, cz), half-width hw, half-depth hd. */
@@ -168,6 +179,13 @@ export class RealCoach implements CoachView {
   private readonly motion = new CoachMotion();
   private readonly arms: Record<Side, Chain>;
   private readonly hands: Record<Side, HandRig>;
+  /**
+   * The way each elbow bends, in its upper arm's frame: forward at rest, as an arm held out to the side
+   * with the palm down folds its hand towards the front.
+   */
+  private readonly flex: Record<Side, Vector3>;
+  /** How each arm was turned last frame, so it carries on from there instead of jumping or flipping. */
+  private readonly turned: Record<Side, Turns> = { L: NO_TURNS, R: NO_TURNS };
   /** The body the arms must stay out of, measured from the mesh; null if the model has no skinned mesh. */
   private readonly body: BodyProfile | null;
   /**
@@ -293,6 +311,13 @@ export class RealCoach implements CoachView {
       const n = this.palmNormal(s, 1);
       if (n && n.y > 0) this.hands[s].palmSign = -1;
     }
+    const flex = (s: Side): Vector3 => {
+      const { arm, fore } = this.arms[s];
+      const along = fore.getWorldPosition(new Vector3()).sub(arm.getWorldPosition(new Vector3())).normalize();
+      const forward = new Vector3(0, 0, 1).addScaledVector(along, -along.z).normalize();
+      return forward.applyQuaternion(arm.getWorldQuaternion(new Quaternion()).invert());
+    };
+    this.flex = { L: flex('L'), R: flex('R') };
     this.leftHip = findBone(model, 'LeftUpLeg');
     this.rightHip = findBone(model, 'RightUpLeg');
     model.traverse((o) => { if (o instanceof Bone) this.bind.set(o, { q: o.quaternion.clone(), p: o.position.clone() }); });
@@ -376,7 +401,7 @@ export class RealCoach implements CoachView {
     for (const s of ['L', 'R'] as const) {
       const sign = s === 'L' ? -1 : 1;
       const dirAt = (deg: number, forward = 0) => new Vector3(sign * Math.sin(deg * RAD), -Math.cos(deg * RAD), TOWARD_CAMERA + forward + ACROSS_FORWARD * Math.max(0, -Math.sin(deg * RAD))).normalize();
-      const { arm, fore, hand, collar } = this.arms[s];
+      const { arm, fore, collar } = this.arms[s];
       // An arm raised above the shoulder lifts the collarbone with it (the outer end goes up).
       const raise = Math.max(0, Math.min(1, (Math.abs(p.dir[s]) - 90) / 90));
       if (collar && raise > 0) rotateWorld(collar, new Vector3(0, 0, 1), sign * SHRUG * raise);
@@ -385,18 +410,22 @@ export class RealCoach implements CoachView {
       // would still cover the face (a big-headed character's arms are short for the pose) swings the
       // whole arm up over the head or down to the chest, whichever is nearer, until the face shows.
       let swing = 0;
+      let turns = this.turned[s];
       for (const lift of LIFT_STEPS) {
         const at = (deg: number, f: number) => dirAt(deg + swing * lift * Math.sign(deg || 1), f);
+        // Aim from rest, not from the last try's turned arm: the turns below are measured from there.
+        arm.quaternion.copy(this.rest.get(arm) ?? arm.quaternion);
         for (const f of CLEAR_STEPS) {
           pointBone(arm, fore, at(p.dir[s] - p.bend[s] / 2, f));
           const shoulder = arm.getWorldPosition(new Vector3()), elbow = fore.getWorldPosition(new Vector3());
           const upper = [0.4, 0.55, 0.7, 0.85, 1].map((t) => shoulder.clone().lerp(elbow, t));
           if (!this.anyInside(upper) && !this.behindFront(upper)) break;
         }
+        // Turning the upper arm about its length leaves the elbow where it is, so it's done per try below.
+        const upperAim = arm.quaternion.clone();
         for (const f of CLEAR_STEPS) {
           this.restHand(s);
-          pointBone(fore, hand, at(p.dir[s] + p.bend[s] / 2, f));
-          this.turnPalm(s, -sign);
+          turns = this.aimForearm(s, upperAim, at(p.dir[s] + p.bend[s] / 2, f), -sign, this.turned[s], dt);
           this.relaxHand(s, -sign);
           const probes = this.handProbes(s);
           if (!this.anyInside(probes) && !this.behindFront(probes.slice(0, 3))) break;
@@ -409,6 +438,7 @@ export class RealCoach implements CoachView {
           if (swing === 0) break;
         }
       }
+      this.turned[s] = turns;
     }
     this.plantFeet();
   }
@@ -490,24 +520,66 @@ export class RealCoach implements CoachView {
   }
 
   /**
-   * Turns the forearm about its own length so the palm faces the way a relaxed dancer's does.
-   * Aiming the arm alone leaves this twist to chance, which is what made palms face backwards.
-   * `inward` is +1 when the body's middle is towards +x from this arm.
+   * Points the forearm along `dir` and turns the palm the way a relaxed dancer's faces, as a real arm
+   * would: the elbow only bends one way, and the palm's turn is shared between the shoulder, the forearm
+   * and the wrist. Turning the forearm alone (as much as 180° for arms up) pinched the elbow to nothing.
+   * `upperAim` is the upper arm as aimed, before any turn; `inward` is +1 when the body's middle is
+   * towards +x from this arm; `last` is how the arm was turned last frame, `dt` the time since.
+   * Returns how it's turned now.
    */
-  private turnPalm(s: Side, inward: number): void {
+  private aimForearm(s: Side, upperAim: Quaternion, dir: Vector3, inward: number, last: Turns, dt: number): Turns {
+    const { arm, fore, hand } = this.arms[s];
+    arm.quaternion.copy(upperAim);
+    fore.quaternion.copy(this.rest.get(fore) ?? fore.quaternion);
+    arm.updateWorldMatrix(false, true);
+    const shoulder = arm.getWorldPosition(new Vector3());
+    const upper = fore.getWorldPosition(new Vector3()).sub(shoulder).normalize();
+    // The elbow is a hinge: it never bends backwards, and the upper arm turns in its socket until the
+    // elbow's crease faces the way the forearm bends. Then aiming the forearm only bends the elbow.
+    // A forearm left leaning back from the upper arm (the upper arm went forward to clear the body)
+    // comes forward to straight, instead of the elbow snapping back or the shoulder turning half round.
+    const crease = this.flex[s].clone().applyQuaternion(arm.getWorldQuaternion(new Quaternion()));
+    crease.addScaledVector(upper, -crease.dot(upper)).normalize();
+    dir = dir.clone().addScaledVector(crease, -Math.min(0, dir.dot(crease))).normalize();
+    const bend = dir.clone().addScaledVector(upper, -dir.dot(upper));
+    const hinge = hingeWeight(bend.length());
+    // An elbow that goes from bending up to bending down turns the upper arm half round: at a pace.
+    const byHinge = follow(last.hinge, hinge * (angleAbout(upper, crease, bend) ?? 0), TURN_RATE * dt);
+    rotateWorld(arm, upper, byHinge);
+    pointBone(fore, hand, dir);
+
+    const want = this.palmTurnAngle(s, inward);
+    if (want === null) return { hinge: byHinge, palm: null };
+    // The palm turns towards where it should face at a wrist's pace, never in a jump between two frames.
+    const goal = continuousTurn(want, last.palm);
+    const total = follow(last.palm, goal, TURN_RATE * dt);
+    // A straight arm turns its palm mostly from the shoulder, as a person's does; a bent one can't
+    // without moving the hand, so its forearm and wrist do it all.
+    const byUpper = clampTurn(byHinge + total * TWIST_SHARE.upper * (1 - hinge), TWIST_MAX.upper) - byHinge;
+    if (byUpper !== 0) {
+      rotateWorld(arm, upper, byUpper);
+      pointBone(fore, hand, dir);
+    }
+    // What's left once the upper arm has turned, short of the turn the palm hasn't caught up on yet.
+    const left = continuousTurn(this.palmTurnAngle(s, inward) ?? 0, goal - byUpper) - (goal - total);
+    const byFore = clampTurn(left * TWIST_SHARE.fore, TWIST_MAX.fore);
+    const byHand = clampTurn(left - byFore, TWIST_MAX.hand);
+    const axis = dir.clone().normalize();
+    rotateWorld(fore, axis, byFore);
+    rotateWorld(hand, axis, byHand);
+    return { hinge: byHinge, palm: total };
+  }
+
+  /** How far (radians, about the forearm) the palm is from facing the way a relaxed dancer's does. */
+  private palmTurnAngle(s: Side, inward: number): number | null {
     const { fore, hand } = this.arms[s];
     const n = this.palmNormal(s);
-    if (!n) return;
+    if (!n) return null;
     const axis = hand.getWorldPosition(new Vector3()).sub(fore.getWorldPosition(new Vector3())).normalize();
     // The more the forearm points across the body, the more the palm turns to face the chest instead.
     const across = Math.max(0, axis.x * inward);
     const want = new Vector3(inward * PALM_INWARD, -PALM_DOWN, PALM_FORWARD - PALM_TO_CHEST * across);
-    // Only the turn about the forearm counts: take the forearm's own direction out of both.
-    want.addScaledVector(axis, -want.dot(axis));
-    n.addScaledVector(axis, -n.dot(axis));
-    if (want.lengthSq() < 1e-6 || n.lengthSq() < 1e-6) return;
-    const angle = Math.atan2(axis.dot(n.clone().cross(want)), n.dot(want));
-    rotateWorld(fore, axis, angle);
+    return angleAbout(axis, n, want);
   }
 
   /** A relaxed hand: the wrist bends a little and the fingers curl towards the palm. */
@@ -652,6 +724,14 @@ function measureBody(model: Object3D, hipsBone: Bone, headBone: Bone): BodyProfi
 }
 
 const tmpA = new Vector3(), tmpB = new Vector3(), qWorld = new Quaternion(), qParent = new Quaternion(), qDelta = new Quaternion();
+
+/** The signed angle about unit `axis` that turns `from` onto `to`, both seen end-on; null if either lies along it. */
+function angleAbout(axis: Vector3, from: Vector3, to: Vector3): number | null {
+  const a = from.clone().addScaledVector(axis, -from.dot(axis));
+  const b = to.clone().addScaledVector(axis, -to.dot(axis));
+  if (a.lengthSq() < 1e-6 || b.lengthSq() < 1e-6) return null;
+  return Math.atan2(axis.dot(a.clone().cross(b)), a.dot(b));
+}
 
 /** Rotates a bone in world space by `angle` around `axis`, keeping its parent. */
 function rotateWorld(bone: Bone, axis: Vector3, angle: number): void {

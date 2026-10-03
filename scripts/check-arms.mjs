@@ -1,5 +1,6 @@
-// Regression check for "the coach's arms go through her body". Plays every song, and every move held
-// still, on each character, and fails when the torso mesh hides any part of an arm from the camera.
+// Regression check for "the coach's arms go through her body" and "her arm looks broken". Plays every
+// song, and every move held still, on each character, and fails when the torso mesh hides any part of an
+// arm from the camera, or a forearm or wrist is twisted past what its skin can bear, or spins.
 // Needs public/models/michelle.glb (pnpm dev or pnpm build fetches it) and Chrome for Testing.
 //
 //   pnpm check:arms                      all characters, all songs
@@ -31,16 +32,16 @@ try {
     const still = await page.evaluate((m) => window.still(m), model);
     const held = Object.keys(still);
     bad += held.length;
-    console.log(`${model}: ${held.length ? `held poses with a hidden arm: ${held.join(', ')}` : 'every held pose clear'}`);
+    console.log(`${model}: ${held.length ? `held poses with a hidden or twisted arm: ${held.map((h) => `${h} ${JSON.stringify(still[h])}`).join(', ')}` : 'every held pose clear'}`);
     for (const id of songs) {
       const r = await page.evaluate(([s, m]) => window.dance(s, m), [id, model]);
       bad += r.bad;
-      if (r.bad) console.log(`   ${id}: ${r.bad} of ${r.checked} frames hide an arm ${JSON.stringify(r.where)}`);
+      if (r.bad) console.log(`   ${id}: ${r.bad} of ${r.checked} frames hide or break an arm ${JSON.stringify(r.where)}`);
     }
   }
 } finally {
   await browser.close();
   await server.close();
 }
-console.log(bad ? 'FAIL: an arm goes through the body' : 'PASS: arms stay in front of the body');
+console.log(bad ? 'FAIL: an arm goes through the body or breaks' : 'PASS: arms stay in front of the body and unbroken');
 process.exit(bad ? 1 : 0);

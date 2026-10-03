@@ -4,6 +4,8 @@
   // Used by scripts/check-arms.mjs. Plays a choreography on a character frame by frame and reports frames
   // where its torso mesh hides an arm from the camera: the arm went into or behind the body.
   // Uses the real skinned vertices, independent of the torso profile the coach itself uses.
+  // Also reports a forearm or wrist turned about its own length past what its skin can bear (the elbow
+  // pinches and the arm looks broken), and one whose turn jumps between two frames (the hand spins).
   import { Vector3 } from 'three';
   import { RealCoach } from '/src/stage/realCoach.ts';
   import { poseAt } from '/src/dance/motion.ts';
@@ -35,7 +37,13 @@
     const all = meshes.flatMap((m) => m.skeleton.bones);
     const bone = (name) => all.find((b) => short(b.name) === name);
     const chain = { L: ['RightArm', 'RightForeArm', 'RightHand'].map(bone), R: ['LeftArm', 'LeftForeArm', 'LeftHand'].map(bone) };
-    return { coach, g, torso, chain };
+    // Each joint at rest, and the line its bone runs along: a turn about that line is the joint's twist.
+    const joint = (b, child) => b && child && { bone: b, rest: b.quaternion.clone(), along: child.position.clone().normalize() };
+    const turns = {
+      L: { elbow: joint(bone('RightForeArm'), bone('RightHand')), wrist: joint(bone('RightHand'), bone('RightHandMiddle1')) },
+      R: { elbow: joint(bone('LeftForeArm'), bone('LeftHand')), wrist: joint(bone('LeftHand'), bone('LeftHandMiddle1')) },
+    };
+    return { coach, g, torso, chain, turns, last: { L: {}, R: {} } };
   }
 
   // Is the point hidden behind the torso as seen from the front (+z)? Count torso vertices in a small
@@ -44,6 +52,20 @@
     let n = 0;
     for (const v of torsoPts) if (Math.abs(v.x - pt.x) < 0.025 && Math.abs(v.y - pt.y) < 0.025 && v.z > pt.z + 0.01) n++;
     return n >= 3;
+  }
+
+  /**
+   * Most a joint may turn about its bone (degrees), and most its turn may change between two checks of a
+   * song, 1/15 s apart. The coach turns an arm at up to 720°/s, 48° a check.
+   */
+  const TWIST_MAX = { elbow: 80, wrist: 50 };
+  const TWIST_JUMP = 60;
+
+  /** How far a joint is turned about its own bone from rest, signed degrees: the twist of a swing-twist split. */
+  function twistOf({ bone, rest, along }) {
+    const rel = rest.clone().invert().multiply(bone.quaternion);
+    const s = along.x * rel.x + along.y * rel.y + along.z * rel.z;
+    return (2 * Math.atan2(rel.w < 0 ? -s : s, Math.abs(rel.w)) * 180) / Math.PI;
   }
 
   function measure(ctx) {
@@ -58,6 +80,15 @@
       // at the side brushes the chest there, as a real one does.
       const samples = { upper: a.clone().lerp(f, 0.6), elbow: f, forearm: f.clone().lerp(h, 0.5), hand: h };
       out[s] = Object.entries(samples).filter(([, p]) => hidden(p, torsoPts)).map(([k]) => k);
+      for (const [name, j] of Object.entries(ctx.turns[s])) {
+        if (!j) continue;
+        const deg = twistOf(j);
+        if (Math.abs(deg) > TWIST_MAX[name]) out[s].push(`${name} twisted`);
+        const prev = ctx.last[s][name];
+        // The short way round: +179° and -179° are the same pose to the skin.
+        if (ctx.moving && prev !== undefined && Math.abs(((deg - prev + 540) % 360) - 180) > TWIST_JUMP) out[s].push(`${name} spins`);
+        ctx.last[s][name] = deg;
+      }
     }
     return out;
   }
@@ -76,6 +107,7 @@
   window.dance = async (songId, model) => {
     const song = songId === 'attract' ? ATTRACT : SONGS.find((s) => s.song.id === songId).song;
     const ctx = await setup(model);
+    ctx.moving = true;
     const dt = 1 / 30, end = songDuration(song);
     let bad = 0, frames = 0;
     const where = {};
