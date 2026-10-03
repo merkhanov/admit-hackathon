@@ -1,4 +1,5 @@
 import { t as tr } from '../i18n.ts';
+import { guardArms, type ArmGuard } from './armGuard.ts';
 import { features, type Features } from './features.ts';
 import { armsFitLimit, framingProblem, GESTURE_IDS, GESTURES, type Calibration, type GestureId } from './gestures.ts';
 import type { Landmark, Pose } from './landmarks.ts';
@@ -40,6 +41,8 @@ type Stage =
 export interface TrackerState {
   stage: Stage;
   gestures: Record<GestureId, GestureState>;
+  /** Arm joints checked for swaps, jumps and occlusion before smoothing. */
+  guard: ArmGuard | null;
   smooth: Landmark[] | null;
   /** Filtered speed of each landmark (frame heights per second), and when the last frame came. */
   speed: { x: number; y: number }[] | null;
@@ -72,7 +75,7 @@ function idle(): GestureState {
 const startCalibration = (): Stage => ({ kind: 'calibrating', since: null, n: 0, sumY: 0, sumSw: 0 });
 
 export function initTracker(): TrackerState {
-  return { stage: startCalibration(), gestures: freshGestures(), smooth: null, speed: null, lastT: null };
+  return { stage: startCalibration(), gestures: freshGestures(), guard: null, smooth: null, speed: null, lastT: null };
 }
 
 /** Forget the neutral pose and learn it again. Called at the start of every round. */
@@ -119,7 +122,9 @@ function smoothPose(prev: Landmark[] | null, prevSpeed: { x: number; y: number }
 export function stepTracker(state: TrackerState, raw: Pose | null, t: number, aspect: number): TrackerOutput {
   // Time since the last frame, kept sane across tab switches and the first frame.
   const dt = state.lastT === null ? 1 / 30 : Math.min(0.25, Math.max(1 / 240, (t - state.lastT) / 1000));
-  const filtered = smoothPose(state.smooth, state.speed, raw, dt, aspect);
+  const calibSw = state.stage.kind === 'tracking' ? state.stage.calib.sw : null;
+  const { pose: guarded, guard } = guardArms(state.guard, raw, t, aspect, calibSw);
+  const filtered = smoothPose(state.smooth, state.speed, guarded, dt, aspect);
   const smooth = filtered.pose;
   const speed = filtered.speed;
   const lastT = t;
@@ -129,7 +134,7 @@ export function stepTracker(state: TrackerState, raw: Pose | null, t: number, as
   const hints: Hint[] = [];
   const readout: TrackerOutput['readout'] = {};
   const out = (stage: Stage): TrackerOutput => ({
-    state: { stage, gestures, smooth, speed, lastT }, events, hints, readout, features: f, pose: smooth,
+    state: { stage, gestures, guard, smooth, speed, lastT }, events, hints, readout, features: f, pose: smooth,
   });
 
   const frame = framingProblem(f);
