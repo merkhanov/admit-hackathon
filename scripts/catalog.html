@@ -1,0 +1,59 @@
+<!doctype html>
+<!-- Used by scripts/import-catalog.mjs: tries each character as a dancer and draws its portrait. -->
+<meta charset="utf-8" />
+<canvas id="c" width="160" height="160"></canvas>
+<script type="module">
+  import { Box3, DirectionalLight, HemisphereLight, PerspectiveCamera, Scene, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
+  import { RealCoach } from '/src/stage/realCoach.ts';
+  import { MOVES } from '/src/dance/moves.ts';
+
+  const renderer = new WebGLRenderer({ canvas: document.getElementById('c'), antialias: true, alpha: true, preserveDrawingBuffer: true });
+  renderer.outputColorSpace = SRGBColorSpace;
+  renderer.setClearColor(0x000000, 0);
+  const bone = (root, name) => { let f = null; root.traverse((o) => { if (!f && o.isBone && o.name.replace(/^.*mixamorig:?/, '') === name) f = o; }); return f; };
+
+  /**
+   * Loads one character and checks it dances right: arms out to the sides really reach out to the
+   * screen's sides (the skeleton map and the facing are right), and raised hands end above the head.
+   * Returns the reason it can't dance, or a portrait as a WebP data URL.
+   */
+  window.tryCharacter = async (url) => {
+    let dancer;
+    try { dancer = await RealCoach.load(url); } catch (e) { return { ok: false, reason: `load: ${String(e.message ?? e).slice(0, 80)}` }; }
+    const g = dancer.group;
+    const at = (name) => bone(g, name)?.getWorldPosition(new Vector3());
+    for (let i = 0; i < 60; i++) dancer.update(MOVES.wings, 0, 0, 1 / 30);
+    g.updateMatrixWorld(true);
+    const box = new Box3().setFromObject(g);
+    const height = box.max.y - box.min.y;
+    const lh = at('RightHand'), rh = at('LeftHand'), hips = at('Hips');
+    // Target arm L is screen-left: Michelle's (and every character's) anatomical right.
+    if (!lh || !rh || !hips) return { ok: false, reason: 'no hands' };
+    if (!(lh.x < hips.x - height * 0.15 && rh.x > hips.x + height * 0.15)) return { ok: false, reason: 'arms out don\'t reach the sides' };
+    for (let i = 0; i < 60; i++) dancer.update(MOVES.up, 0, 0, 1 / 30);
+    g.updateMatrixWorld(true);
+    const head = at('Head');
+    if (!head || at('RightHand').y < head.y || at('LeftHand').y < head.y) return { ok: false, reason: 'raised hands stay below the head' };
+
+    // Portrait: head and shoulders, relaxed arms.
+    for (let i = 0; i < 60; i++) dancer.update(null, 0, 0, 1 / 30);
+    const scene = new Scene();
+    scene.add(new HemisphereLight(0xffffff, 0xb9a2ff, 2.2));
+    const key = new DirectionalLight(0xffffff, 2.4);
+    key.position.set(1.5, 3, 4);
+    scene.add(key);
+    scene.add(g);
+    g.updateMatrixWorld(true);
+    const b2 = new Box3().setFromObject(g);
+    const headY = bone(g, 'Head').getWorldPosition(new Vector3()).y;
+    const top = b2.max.y;
+    const span = (top - headY) * 1.9 + 0.12;
+    const centre = new Vector3(0, headY + (top - headY) * 0.42, 0);
+    const camera = new PerspectiveCamera(30, 1, 0.05, 50);
+    camera.position.set(0, centre.y + 0.03, span / 2 / Math.tan((15 * Math.PI) / 180) + 0.2);
+    camera.lookAt(centre);
+    renderer.render(scene, camera);
+    return { ok: true, portrait: renderer.domElement.toDataURL('image/webp', 0.82) };
+  };
+  window.ready = true;
+</script>

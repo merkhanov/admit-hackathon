@@ -6,6 +6,7 @@ import type { Side } from '../pose/features.ts';
 import { CoachMotion, type CoachView } from './coach.ts';
 import { buildHat } from './hats.ts';
 import { recolor, type Look } from './outfits.ts';
+import { adoptVrmSkeleton } from './vrm.ts';
 import { hiddenByTorso, measureTorso, type BodyPoint, type TorsoProfile } from './torso.ts';
 import type { Hat } from './themes.ts';
 
@@ -205,7 +206,10 @@ export class RealCoach implements CoachView {
   static async load(url: string, options: RealCoachOptions = {}): Promise<RealCoach> {
     let gltf = gltfCache.get(url);
     if (!gltf) {
-      gltf = new GLTFLoader().loadAsync(url).then((g) => ({ scene: g.scene, animations: g.animations }));
+      gltf = new GLTFLoader().loadAsync(url).then(async (g) => {
+        await adoptVrmSkeleton(g);
+        return { scene: g.scene, animations: g.animations };
+      });
       gltfCache.set(url, gltf);
     }
     const { scene, animations } = await gltf;

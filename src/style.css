@@ -1001,6 +1001,12 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 }
 .shop-item.worn { border-color: var(--grape); background: var(--white); }
 .shop-item strong { font: 900 0.85rem/1.15 var(--font); }
+/* Over a hundred characters: smaller cards, four or five to a row. */
+.shop-grid.shop-grid-characters { grid-template-columns: repeat(auto-fill, minmax(86px, 1fr)); gap: 6px; }
+.shop-grid-characters .shop-item.shop-character { padding: 8px 4px 6px; gap: 4px; }
+.shop-grid-characters .shop-item .portrait { width: 56px; height: 56px; }
+.shop-grid-characters strong { font-size: 0.74rem; line-height: 1.1; min-height: 2.2em; display: flex; align-items: center; }
+.shop-grid-characters .shop-btn { padding: 6px 4px; font-size: 0.72rem; }
 /* A character's card: their face instead of a colour dot. */
 .portrait { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; background: linear-gradient(oklch(0.93 0.06 300), oklch(0.97 0.03 350)); box-shadow: inset 0 0 0 3px oklch(1 0 0 / 0.7); }
 .shop-btn.worn:disabled { background: var(--grape-deep); color: var(--white); cursor: default; }
@@ -1049,3 +1055,9 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 /* "Play with friends" opens the lobby here: the room part glows once so the eye finds it. */
 .lobby-friends.focus { border-radius: var(--radius-md); animation: friends-focus 1.4s var(--ease-out) 2; }
 @keyframes friends-focus { 0% { box-shadow: 0 0 0 0 oklch(0.53 0.21 300 / 0.55); } 100% { box-shadow: 0 0 0 16px oklch(0.53 0.21 300 / 0); } }
+
+/* Phones: four characters to a row, so the list doesn't take a hundred screens of scrolling. */
+@media (max-width: 720px) {
+  .shop-grid.shop-grid-characters { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
+  .shop-grid-characters .shop-item .portrait { width: 48px; height: 48px; }
+}

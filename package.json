@@ -12,7 +12,8 @@
     "e2e:multiplayer": "node scripts/e2e-multiplayer.mjs",
     "extract:dance": "node scripts/extract-dance.mjs",
     "import:avatars": "node scripts/import-avatars.mjs",
-    "check:arms": "node scripts/check-arms.mjs"
+    "check:arms": "node scripts/check-arms.mjs",
+    "import:catalog": "node scripts/import-catalog.mjs"
   },
   "devDependencies": {
     "@types/three": "0.186.0",

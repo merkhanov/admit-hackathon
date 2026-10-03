@@ -1,5 +1,5 @@
 import type { Rating } from '../dance/dance.ts';
-import type { CharacterId } from '../stage/characters.ts';
+import { CHARACTER_IDS, CHARACTERS, type CharacterId } from '../stage/characters.ts';
 import type { Hat } from '../stage/themes.ts';
 
 /** Where a piece of clothing goes; 'character' is who dances. */
@@ -18,6 +18,8 @@ export interface ShopItem {
   swatch: string;
   /** Translation key of its name. */
   name: string;
+  /** A name shown as is, when there's no translation (catalogue characters). */
+  label?: string;
 }
 
 const colour = (slot: Slot, key: string, hue: number, swatch: string, price: number): ShopItem =>
@@ -25,12 +27,14 @@ const colour = (slot: Slot, key: string, hue: number, swatch: string, price: num
 const hat = (key: Exclude<Hat, 'none'>, price: number, swatch: string): ShopItem =>
   ({ id: `hat-${key}`, slot: 'hat', price, hat: key, swatch, name: `hat.${key}` });
 
-const character = (key: CharacterId, price: number): ShopItem =>
-  ({ id: `character-${key}`, slot: 'character', price, character: key, swatch: '', name: `character.${key}` });
+const character = (key: CharacterId): ShopItem => {
+  const c = CHARACTERS[key];
+  return { id: `character-${key}`, slot: 'character', price: c.price, character: key, swatch: '', name: `character.${key}`, ...(c.label ? { label: c.label } : {}) };
+};
 
 /** Everything the shop sells: characters first (Michelle is free and worn by default), cheap colours, pricier hats. */
 export const SHOP: readonly ShopItem[] = [
-  character('michelle', 0), character('juanita', 100), character('snailkid', 150), character('eugenia', 200),
+  ...CHARACTER_IDS.map(character),
   colour('top', 'pink', 330, '#fe8dc5', 30), colour('top', 'mint', 162, '#56f3c1', 30),
   colour('top', 'sky', 205, '#8cd1fa', 40), colour('top', 'sunshine', 50, '#ffda4b', 40),
   colour('top', 'grape', 285, '#8140d0', 50), colour('top', 'coral', 10, '#fe8b85', 50),
@@ -43,7 +47,8 @@ export const SHOP: readonly ShopItem[] = [
   hat('papakha', 120, '#6b4a3a'), hat('crown', 150, '#ffd23f'),
 ];
 
-export const shopItem = (id: string): ShopItem | undefined => SHOP.find((i) => i.id === id);
+const BY_ID = new Map(SHOP.map((i) => [i.id, i]));
+export const shopItem = (id: string): ShopItem | undefined => BY_ID.get(id);
 
 /** Free items (Michelle) belong to everyone. */
 export const owns = (w: Wallet, id: string): boolean => w.owned.includes(id) || shopItem(id)?.price === 0;

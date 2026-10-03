@@ -9,7 +9,7 @@ import type { MoveTarget } from '../dance/moves.ts';
 import { Coach, type CoachView, type Outfit } from './coach.ts';
 import { RealCoach } from './realCoach.ts';
 import { backdrop, beam, floorTile, toonRamp } from './textures.ts';
-import { CHARACTERS, isCharacter, type CharacterId, type Dressing } from './characters.ts';
+import { CHARACTERS, isCharacter, modelUrl, type CharacterId, type Dressing } from './characters.ts';
 import { CREW_LOOKS, type Look } from './outfits.ts';
 import { THEMES, type StageTheme } from './themes.ts';
 import { t } from '../i18n.ts';
@@ -349,7 +349,7 @@ export class Stage implements StageView {
     const chosen = isCharacter(look?.character) ? look.character : null;
     if (chosen !== a.character && chosen !== a.loading) {
       a.loading = chosen;
-      const url = `${import.meta.env.BASE_URL}${chosen ? CHARACTERS[chosen].model : CREW_MODELS[a.slot]}`;
+      const url = chosen ? modelUrl(CHARACTERS[chosen]) : `${import.meta.env.BASE_URL}${CREW_MODELS[a.slot]}`;
       RealCoach.load(url, { height: 2.25 * CREW_SCALE, castShadow: false }).then((real) => {
         // Skip if the player changed their mind again, or left the room, while this one loaded.
         if (a.loading !== chosen || ![...this.crew.values()].includes(a)) return;
@@ -383,7 +383,7 @@ export class Stage implements StageView {
     const who = look?.character ?? 'michelle';
     if (who !== this.coachCharacter) {
       this.coachCharacter = who;
-      RealCoach.load(`${import.meta.env.BASE_URL}${CHARACTERS[who].model}`).then((real) => {
+      RealCoach.load(modelUrl(CHARACTERS[who])).then((real) => {
         // The player may have chosen someone else while this one loaded.
         if (this.coachCharacter !== who) return;
         this.scene.remove(this.coach.group);

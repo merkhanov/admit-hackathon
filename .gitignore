@@ -36,3 +36,6 @@ public/models/
 # Local debugging harnesses and large assets
 lab/
 
+
+# Downloaded character models (scripts/import-catalog.mjs)
+.cache/

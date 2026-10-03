@@ -163,13 +163,14 @@ function shopItemHtml(item: ShopItem, w: Wallet): string {
   const label = who ? t(worn ? 'shop.chosen' : 'shop.choose') : t(worn ? 'shop.takeOff' : 'shop.wear');
   const button = owned
     ? `<button class="shop-btn ${worn ? 'worn' : ''}" type="button" data-wear="${esc(item.id)}" aria-pressed="${worn}"${who && worn ? ' disabled' : ''}>${esc(label)}</button>`
-    : `<button class="shop-btn buy" type="button" data-buy="${esc(item.id)}"${short > 0 ? ' disabled' : ''}>${esc(short > 0 ? t('shop.short', { n: short }) : t('shop.buy', { price: item.price }))}</button>`;
+    // A character card is small: when coins are short it shows the price, greyed, not a sentence.
+    : `<button class="shop-btn buy" type="button" data-buy="${esc(item.id)}"${short > 0 ? ` disabled title="${esc(t('shop.short', { n: short }))}"` : ''}>${esc(short > 0 && !who ? t('shop.short', { n: short }) : t('shop.buy', { price: item.price }))}</button>`;
   const picture = item.character
     ? `<img class="portrait" src="${import.meta.env.BASE_URL}${CHARACTERS[item.character].portrait}" alt="" width="72" height="72" loading="lazy" />`
     : `<span class="swatch swatch-${item.slot}" style="--c:${item.swatch}" aria-hidden="true"></span>`;
   return `<li class="shop-item ${worn ? 'worn' : ''}${who ? ' shop-character' : ''}">
       ${picture}
-      <strong>${esc(tryT(item.name) ?? item.id)}</strong>
+      <strong>${esc(tryT(item.name) ?? item.label ?? item.id)}</strong>
       ${button}
     </li>`;
 }
@@ -187,7 +188,7 @@ function shopHtml(w: Wallet): string {
     <div class="shop-body">
       ${SLOTS.map((slot) => `
         <h3>${esc(t(`shop.slot.${slot}`))}</h3>
-        <ul class="shop-grid">${SHOP.filter((i) => i.slot === slot).map((i) => shopItemHtml(i, w)).join('')}</ul>`).join('')}
+        <ul class="shop-grid${slot === 'character' ? ' shop-grid-characters' : ''}">${SHOP.filter((i) => i.slot === slot).map((i) => shopItemHtml(i, w)).join('')}</ul>`).join('')}
     </div>
   </aside>`;
 }
