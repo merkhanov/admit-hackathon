@@ -61,12 +61,12 @@ describe('calibration', () => {
 
   it('asks to move back when the player is too close, and freezes gestures', () => {
     const p = new Player().calibrated().hold({ sw: 0.85, sy: 0.6 }, 300);
-    expect(p.lastHints[0]).toMatchObject({ kind: 'frame', text: expect.stringContaining('Слишком близко') });
+    expect(p.lastHints[0]).toMatchObject({ kind: 'frame', text: expect.stringContaining('слишком близко') });
   });
 
   it('reports a head out of frame', () => {
     const p = new Player().calibrated().hold({ vis: 0.2 }, 300);
-    expect(p.lastHints[0]).toMatchObject({ kind: 'frame', text: expect.stringContaining('Не видно головы') });
+    expect(p.lastHints[0]).toMatchObject({ kind: 'frame', text: expect.stringContaining('Голову и плечи не видно') });
   });
 
   it('recalibrate forgets the old baseline and learns the new one', () => {
@@ -92,7 +92,7 @@ describe('hand above the head (start and restart)', () => {
     const p = new Player().calibrated().hold(ARM_HALF, 300);
     expect(p.fixHint()).toBeUndefined();
     p.hold(ARM_HALF, 300);
-    expect(p.fixHint()).toMatch(/Подними правую руку выше головы, чтобы начать: не хватает ≈\d+ см/);
+    expect(p.fixHint()).toBe('Подними правую руку над головой, чтобы начать');
     p.hold(ARM_UP, 300);
     expect(p.events).toEqual(['jump']);
     expect(p.fixHint()).toBeUndefined();
@@ -109,7 +109,7 @@ describe('hand above the head (start and restart)', () => {
     const p = new Player().calibrated().hold(ARM_UP, 400).hold(ARM_HALF, 400);
     expect(p.fixHint()).toBeUndefined();
     p.hold(ARM_HALF, 500);
-    expect(p.fixHint()).toContain('выше головы');
+    expect(p.fixHint()).toContain('над головой');
   });
 });
 
@@ -117,7 +117,7 @@ describe('distance to the camera', () => {
   it('calibration asks to step back until arms spread sideways fit in the frame', () => {
     const p = new Player().hold({ sw: 0.6, sy: 0.5 }, 1500);
     expect(p.state.stage.kind).toBe('calibrating');
-    expect(p.lastHints[0]).toMatchObject({ kind: 'calib', text: expect.stringContaining('Отойди подальше') });
+    expect(p.lastHints[0]).toMatchObject({ kind: 'calib', text: expect.stringContaining('Отойди назад') });
     p.hold({ sw: 0.28 }, 1200);
     expect(p.events).toContain('calibrated');
   });
@@ -135,7 +135,7 @@ describe('camera jitter', () => {
 
   it('a held near-miss still produces a steady hint', () => {
     const p = new Player(NOISE, 7).calibrated().hold(ARM_HALF, 900);
-    expect(p.fixHint()).toContain('выше головы');
+    expect(p.fixHint()).toContain('над головой');
   });
 
   it('a normal jump still shows no hint and fires once', () => {

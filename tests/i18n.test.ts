@@ -19,7 +19,8 @@ describe('languages', () => {
         expect(typeof other, key).toBe(typeof ru === 'function' ? typeof other : 'string');
         if (typeof ru === 'string' && typeof other === 'string') {
           expect(placeholders(other), key).toEqual(placeholders(ru));
-          expect(other.trim().length, key).toBeGreaterThan(0);
+          // A size word may be empty: a plain «выше» is the middle amount.
+          if (key !== 'amount.medium') expect(other.trim().length, key).toBeGreaterThan(0);
         }
       }
     }
@@ -41,17 +42,17 @@ describe('languages', () => {
       drop: 0,
     };
     const hint = () => evaluate(MOVES.leftUp, body).worst?.hint;
-    expect(hint()).toBe('Левая рука: подними выше на 170°');
+    expect(hint()).toBe('Левую руку намного выше');
     setLang('kk', noStorage);
-    expect(hint()).toBe('Сол қол: жоғарырақ көтер (170°)');
+    expect(hint()).toBe('Сол қолды әлдеқайда жоғары көтер');
     setLang('en', noStorage);
-    expect(hint()).toBe('Left arm: raise it by 170°');
+    expect(hint()).toBe('Left arm much higher');
   });
 
   it('counts mistakes with the right grammar', () => {
-    expect(t('advice', { part: 'Левая рука', n: 3, hint: 'x' })).toContain('3 раза мимо цели');
-    expect(t('advice', { part: 'Левая рука', n: 5, hint: 'x' })).toContain('5 раз мимо цели');
+    expect(t('advice', { part: 'Левая рука', n: 3, hint: 'x' })).toBe('x (3 раза мимо)');
+    expect(t('advice', { part: 'Левая рука', n: 5, hint: 'x' })).toBe('x (5 раз мимо)');
     setLang('en', noStorage);
-    expect(t('advice', { part: 'Left arm', n: 1, hint: 'x' })).toContain('1 time.');
+    expect(t('advice', { part: 'Left arm', n: 1, hint: 'x' })).toBe('x (missed once)');
   });
 });

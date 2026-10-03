@@ -15,7 +15,7 @@ Two situations matter most:
 
 ## Product Purpose
 
-Motion Dance turns a webcam into a dance controller: the player mirrors an on-screen coach, each move is judged part by part (arms, elbows, lean, squat), and a mistake produces a concrete correction such as "Левая рука: подними выше на 45°". Success is a first-time player finishing a song, seeing a clear score, and dancing better on the second try because the hints told them how.
+Motion Dance turns a webcam into a dance controller: the player mirrors an on-screen coach, each move is judged part by part (arms, elbows, lean, squat), and a mistake produces a concrete correction such as «Левую руку выше» with an arrow showing which way. Success is a first-time player finishing a song, seeing a clear score, and dancing better on the second try because the hints told them how.
 
 The error mode is the hackathon's judging criterion, so it is the product's centre, not a feature among others: the hint after each move, the ghost target in the camera window, the live hints in the warm-up, the framing hints and the post-song breakdown.
 
@@ -48,11 +48,11 @@ Three words: **bright, bouncy, clear.**
 
 All copy is Russian and addresses the player as «ты». A hint is an instruction the player can do right now, while dancing.
 
-- **Name the body part first, then the action, then the amount.** «Левая рука: подними выше на 45°», not «Угол левой руки недостаточен».
+- **Talk like a coach, not a report.** A short command that names the arm and the direction: «Левую руку выше», «Согни правую руку в локте», not «Левая рука: подними выше на 45°» or «Угол левой руки недостаточен». No label-and-colon structure.
 - **Left and right are the player's own**, as in a mirror. The copy never makes them translate.
-- **Numbers only when they help.** Degrees for arms and lean; for the squat, a plain «Присядь ниже».
+- **No numbers in hints.** The arrow shows the direction and the meter shows how close the player is; the text says only «чуть» or «намного» when the gap is small or large.
 - **Praise is short, fixes are specific.** «Отлично!» is enough for a success; a correction gets the full sentence.
-- **Blame the setup, not the player.** «Не вижу левую руку: держи её в кадре», not «Ты вышел из кадра».
+- **Blame the setup, not the player.** «Держи левую руку в кадре», not «Ты вышел из кадра».
 - **No exclamation marks on bad news**, no «Ошибка», no «Неправильно».
 - **Sentences, not labels**, on anything longer than a chip. Short enough to read in one glance from 2 m: one line for a hint, two at most.
 

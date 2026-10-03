@@ -91,13 +91,13 @@ describe('round summary', () => {
   it('ranks the body parts that cost the most moves, with the latest correction', () => {
     let log: MistakeLog = {};
     const miss = (part: 'armL' | 'tilt', hint: string) => ({ index: 0, move: 'up' as const, rating: 'ok' as const, score: 0.5, hint, part, cue: null });
-    log = logVerdict(log, miss('armL', 'Левая рука: подними выше на 30°'));
-    log = logVerdict(log, miss('armL', 'Левая рука: подними выше на 25°'));
-    log = logVerdict(log, miss('tilt', 'Наклонись влево сильнее'));
+    log = logVerdict(log, miss('armL', 'Левую руку выше'));
+    log = logVerdict(log, miss('armL', 'Левую руку чуть выше'));
+    log = logVerdict(log, miss('tilt', 'Наклонись сильнее влево'));
     log = logVerdict(log, { index: 1, move: 'up', rating: 'perfect', score: 1, hint: null, part: null, cue: null });
     const lines = adviceLines(log);
-    expect(lines[0]).toBe('Левая рука: 2 раза мимо цели. Последняя подсказка: «Левая рука: подними выше на 25°».');
-    expect(lines[1]).toContain('Наклон корпуса: 1 раз');
+    expect(lines[0]).toBe('Левую руку чуть выше (2 раза мимо)');
+    expect(lines[1]).toBe('Наклонись сильнее влево (1 раз мимо)');
   });
 
   it('reports each part accuracy, weakest first', () => {

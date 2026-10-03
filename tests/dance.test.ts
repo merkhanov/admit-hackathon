@@ -61,7 +61,7 @@ describe('framing', () => {
     expect(lm[15].y).toBeGreaterThan(1);
     const body = bodyAngles(features(lm, SYNTH_ASPECT), { midY: n.midY, sw: n.sw });
     if (!body) throw new Error('visible');
-    expect(evaluate(MOVES.up, body).worst?.hint).toMatch(/рука ниже кадра: подними её/);
+    expect(evaluate(MOVES.up, body).worst?.hint).toMatch(/^Подними (левую|правую) руку$/);
   });
 
   it('a shoulder hiked by a raised arm does not spoil a one-arm move', () => {
@@ -73,22 +73,22 @@ describe('framing', () => {
 describe('corrections', () => {
   it('a low left arm gets "raise it" with the angle', () => {
     const e = evaluate(MOVES.up, bodyFor(paramsFor(MOVES.up, { L: -45 })));
-    expect(e.worst?.hint).toBe('Левая рука: подними выше на 45°');
+    expect(e.worst?.hint).toBe('Левую руку выше');
   });
 
   it('an arm too high on a sideways move gets "lower it"', () => {
     const e = evaluate(MOVES.wings, bodyFor(paramsFor(MOVES.wings, { R: 40 })));
-    expect(e.worst?.hint).toBe('Правая рука: опусти ниже на 40°');
+    expect(e.worst?.hint).toBe('Правую руку ниже');
   });
 
   it('a straight arm on the muscles move asks to bend the elbow', () => {
     const e = evaluate(MOVES.muscles, bodyFor(paramsFor(MOVES.vee)));
-    expect(e.worst?.hint).toMatch(/Согни (левый|правый) локоть: сейчас \d+°, нужно около 80°/);
+    expect(e.worst?.hint).toMatch(/^Согни (левую|правую) руку в локте$/);
   });
 
   it('a weak lean asks to lean further, with degrees', () => {
     const e = evaluate(MOVES.leanL, bodyFor({ ...paramsFor(MOVES.leanL), tilt: 4 }));
-    expect(e.worst?.hint).toBe('Наклонись влево сильнее: сейчас 4°, нужно 15°');
+    expect(e.worst?.hint).toBe('Наклонись сильнее влево');
   });
 
   it('a shallow squat asks to go lower', () => {
@@ -98,7 +98,7 @@ describe('corrections', () => {
 
   it('a hidden arm is named, not silently failed', () => {
     const e = evaluate(MOVES.wings, bodyFor({ ...paramsFor(MOVES.wings), sw: 0.5, sy: 0.45 }));
-    expect(e.worst?.hint).toMatch(/Не вижу (левую|правую) руку/);
+    expect(e.worst?.hint).toMatch(/^Держи (левую|правую) руку в кадре$/);
   });
 });
 
@@ -202,7 +202,7 @@ describe('timing', () => {
     const { verdicts } = playSong({ lag: INPUT_LAG_S, errorOn: 'muscles' });
     const wrong = verdicts.filter((v) => v.rating !== 'perfect');
     expect(wrong.every((v) => v.move === 'muscles')).toBe(true);
-    expect(wrong[0].hint).toMatch(/Левая рука: подними выше/);
+    expect(wrong[0].hint).toMatch(/^Левую руку (чуть |намного )?выше$/);
   });
 
   it('the correction names the arm that stayed wrong, not one that swept through the target', () => {
@@ -220,7 +220,7 @@ describe('timing', () => {
       state = r.state;
       verdicts.push(...r.verdicts);
     }
-    expect(verdicts[0]).toMatchObject({ rating: 'miss', hint: expect.stringContaining('Не видно тебя') });
+    expect(verdicts[0]).toMatchObject({ rating: 'miss', hint: expect.stringContaining('в кадре были голова') });
     expect(state.points).toBe(0);
     expect(maxPoints(SONG)).toBe(SONG.steps.length * 100);
   });

@@ -29,14 +29,11 @@ export interface GestureSpec {
   measure: (f: Tracked) => Measure;
 }
 
-// Rough shoulder width in cm. Used only to phrase hints in human units.
-const CM_PER_SW = 38;
 /** Wrist above its own shoulder, in shoulder widths: about the top of the head. */
 export const HAND_UP = 1.0;
 /** How far a straight arm reaches sideways from the shoulder, in shoulder widths. */
 const ARM_REACH = 1.6;
 
-const cm = (shoulderWidths: number) => Math.max(1, Math.round(shoulderWidths * CM_PER_SW));
 const SIDES: readonly Side[] = ['R', 'L'];
 
 function measureHandUp(f: Tracked): Measure {
@@ -45,7 +42,7 @@ function measureHandUp(f: Tracked): Measure {
     const a = f.arms[s];
     if (!a.ok || a.out > 0.9) continue;
     const p = a.raise / HAND_UP;
-    if (p > best.p) best = { p, hint: t(`hint.raiseToStart.${s}`, { cm: cm(HAND_UP - a.raise) }) };
+    if (p > best.p) best = { p, hint: t(`hint.raiseToStart.${s}`) };
   }
   return best;
 }

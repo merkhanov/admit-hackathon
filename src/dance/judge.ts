@@ -104,7 +104,9 @@ function armPart(s: Side, target: number, arm: ArmAngles, targetElbow: number, r
   // The player's left arm is on screen-left: moving it out goes left, across the body goes right.
   const outward: Cue = s === 'L' ? 'left' : 'right', inward: Cue = s === 'L' ? 'right' : 'left';
   const cue: Cue = action === 'up' || action === 'head' ? 'up' : action === 'out' ? outward : action === 'across' ? inward : 'down';
-  return { part: PART_ARM[s], score, hint: t(`hint.arm.${s}`, { action: t(`action.${action}`), deg: Math.round(err) }), cue };
+  // How far off, in words a coach would use; the arrow and the meter carry the rest.
+  const amount = t(err < 30 ? 'amount.small' : err < 65 ? 'amount.medium' : 'amount.large');
+  return { part: PART_ARM[s], score, hint: t(`hint.arm.${action}.${s}`, { amount }), cue };
 }
 
 function elbowPart(s: Side, target: number, arm: ArmAngles): PartScore | null {
@@ -112,8 +114,8 @@ function elbowPart(s: Side, target: number, arm: ArmAngles): PartScore | null {
   const err = Math.abs(arm.elbow - target);
   const straighten = arm.elbow < target;
   const hint = straighten
-    ? t(`hint.straighten.${s}`, { now: Math.round(arm.elbow) })
-    : t(`hint.bend.${s}`, { now: Math.round(arm.elbow), target: Math.round(target) });
+    ? t(`hint.straighten.${s}`)
+    : t(`hint.bend.${s}`);
   return { part: PART_ELBOW[s], score: clamp01(1 - (err - 30) / 50), hint, cue: straighten ? 'straighten' : 'bend' };
 }
 
@@ -121,11 +123,11 @@ function tiltPart(target: number, tilt: number): PartScore {
   const err = Math.abs(tilt - target);
   if (target === 0) {
     // Generous: raising one arm hikes that shoulder by itself.
-    return { part: 'tilt', score: clamp01(1 - (err - 15) / 20), hint: t(tilt > 0 ? 'hint.upright.left' : 'hint.upright.right', { deg: Math.round(err) }), cue: tilt > 0 ? 'right' : 'left' };
+    return { part: 'tilt', score: clamp01(1 - (err - 15) / 20), hint: t(tilt > 0 ? 'hint.upright.left' : 'hint.upright.right'), cue: tilt > 0 ? 'right' : 'left' };
   }
   const need = target - tilt;
   const key = need > 0 ? 'hint.lean.left' : 'hint.lean.right';
-  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: t(key, { now: Math.round(Math.abs(tilt)), target: Math.round(Math.abs(target)) }), cue: need > 0 ? 'left' : 'right' };
+  return { part: 'tilt', score: clamp01(1 - (err - 6) / 14), hint: t(key), cue: need > 0 ? 'left' : 'right' };
 }
 
 function squatPart(squat: boolean, drop: number): PartScore {
