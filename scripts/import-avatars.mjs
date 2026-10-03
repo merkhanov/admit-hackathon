@@ -5,7 +5,7 @@
 // The results are committed, so a normal build needs neither this script nor the network.
 //
 //   pnpm import:avatars
-import { mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
@@ -27,8 +27,11 @@ for (const a of AVATARS) {
 
 const server = await createServer({ server: { port: 5199, strictPort: false }, logLevel: 'error' });
 await server.listen();
-const chrome = process.env.CHROME
-  ?? `${homedir()}/Library/Caches/ms-playwright/chromium-1243/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+// Chrome for Testing on a Mac, or the Chromium of a Linux box (CI, cloud sessions); CHROME overrides both.
+const chrome = process.env.CHROME ?? [
+  `${homedir()}/Library/Caches/ms-playwright/chromium-1243/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`,
+  '/opt/pw-browsers/chromium',
+].find((p) => existsSync(p));
 const browser = await chromium.launch({ executablePath: chrome, headless: true });
 try {
   const page = await browser.newPage();

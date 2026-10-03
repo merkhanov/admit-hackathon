@@ -62,6 +62,8 @@ const SLICE = 0.04;
 
 /** Each try aims a segment that would go into the body this much further towards the camera. */
 const CLEAR_STEPS = [0, 0.25, 0.5, 0.8, 1.2, 1.7, 2.4];
+/** Degrees the whole arm swings, up or down, to take a hand off the face. */
+const LIFT_STEPS = [0, 12, 24, 36, 48];
 /** Raising an arm above the shoulder lifts the collarbone up to this much (radians), as a real shoulder does. */
 const SHRUG = 0.32;
 
@@ -371,20 +373,33 @@ export class RealCoach implements CoachView {
       const raise = Math.max(0, Math.min(1, (Math.abs(p.dir[s]) - 90) / 90));
       if (collar && raise > 0) rotateWorld(collar, new Vector3(0, 0, 1), sign * SHRUG * raise);
       // Aim the upper arm, then the forearm and hand; whatever would go into the body is aimed further
-      // towards the camera until the elbow, forearm, palm and fingertips are all clear of it.
-      for (const f of CLEAR_STEPS) {
-        pointBone(arm, fore, dirAt(p.dir[s] - p.bend[s] / 2, f));
-        const shoulder = arm.getWorldPosition(new Vector3()), elbow = fore.getWorldPosition(new Vector3());
-        const upper = [0.4, 0.55, 0.7, 0.85, 1].map((t) => shoulder.clone().lerp(elbow, t));
-        if (!this.anyInside(upper) && !this.behindFront(upper)) break;
-      }
-      for (const f of CLEAR_STEPS) {
-        this.restHand(s);
-        pointBone(fore, hand, dirAt(p.dir[s] + p.bend[s] / 2, f));
-        this.turnPalm(s, -sign);
-        this.relaxHand(s, -sign);
-        const probes = this.handProbes(s);
-        if (!this.anyInside(probes) && !this.behindFront(probes.slice(0, 3))) break;
+      // towards the camera until the elbow, forearm, palm and fingertips are all clear of it. A hand that
+      // would still cover the face (a big-headed character's arms are short for the pose) swings the
+      // whole arm up over the head or down to the chest, whichever is nearer, until the face shows.
+      let swing = 0;
+      for (const lift of LIFT_STEPS) {
+        const at = (deg: number, f: number) => dirAt(deg + swing * lift * Math.sign(deg || 1), f);
+        for (const f of CLEAR_STEPS) {
+          pointBone(arm, fore, at(p.dir[s] - p.bend[s] / 2, f));
+          const shoulder = arm.getWorldPosition(new Vector3()), elbow = fore.getWorldPosition(new Vector3());
+          const upper = [0.4, 0.55, 0.7, 0.85, 1].map((t) => shoulder.clone().lerp(elbow, t));
+          if (!this.anyInside(upper) && !this.behindFront(upper)) break;
+        }
+        for (const f of CLEAR_STEPS) {
+          this.restHand(s);
+          pointBone(fore, hand, at(p.dir[s] + p.bend[s] / 2, f));
+          this.turnPalm(s, -sign);
+          this.relaxHand(s, -sign);
+          const probes = this.handProbes(s);
+          if (!this.anyInside(probes) && !this.behindFront(probes.slice(0, 3))) break;
+        }
+        if (!this.overFace(this.handProbes(s).slice(2))) break;
+        // Hands meant above the head go up over it; a low elbow (arms crossed) goes down to the chest.
+        // Anything else covers the face on purpose (the dab hides it in the elbow).
+        if (swing === 0) {
+          swing = Math.abs(p.dir[s]) >= 120 ? 1 : fore.getWorldPosition(new Vector3()).y < arm.getWorldPosition(new Vector3()).y ? -1 : 0;
+          if (swing === 0) break;
+        }
       }
     }
     this.plantFeet();
@@ -420,6 +435,21 @@ export class RealCoach implements CoachView {
     const front = this.front;
     if (!front) return false;
     return points.some((p) => hiddenByTorso(this.bodyPoint(p), front, this.frontMargin));
+  }
+
+  /**
+   * Does any of these hand points cover the face, as the camera sees it?
+   */
+  private overFace(points: Vector3[]): boolean {
+    const body = this.body;
+    if (!body) return false;
+    const head = this.head.localToWorld(body.headCentre.clone());
+    const r = body.headR;
+    for (const p of points) {
+      const up = p.y - head.y;
+      if (Math.abs(p.x - head.x) < r * 0.8 && up > -r * 1.1 && up < r * 0.5 && p.z > head.z) return true;
+    }
+    return false;
   }
 
   /** Is any point inside the body (torso, hips, thighs or head), as measured from the mesh at load? */
