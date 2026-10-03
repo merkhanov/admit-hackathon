@@ -1,0 +1,99 @@
+<!doctype html>
+<meta charset="utf-8" />
+<script type="module">
+  // Used by scripts/check-arms.mjs. Plays a choreography on a character frame by frame and reports frames
+  // where its torso mesh hides an arm from the camera: the arm went into or behind the body.
+  // Uses the real skinned vertices, independent of the torso profile the coach itself uses.
+  import { Vector3 } from 'three';
+  import { RealCoach } from '/src/stage/realCoach.ts';
+  import { poseAt } from '/src/dance/motion.ts';
+  import { MOVES } from '/src/dance/moves.ts';
+  import { buildSong, beatLength, songDuration } from '/src/dance/song.ts';
+  import { SONGS } from '/src/dance/songs.ts';
+
+  const ATTRACT = buildSong('attract', 'Motion Dance', 112, ['wings', 'up', 'discoL', 'discoR', 'muscles', 'leanL', 'leanR', 'vee']);
+  const TORSO = new Set(['Hips', 'Spine', 'Spine1', 'Spine2']);
+  /** A bone's Mixamo name without the rig prefix: "mixamorig:LeftArm" and "vis_char_052:mixamorig:LeftArm" are "LeftArm". */
+  const short = (n) => { const c = n.replace(/:/g, ''); return c.includes('mixamorig') ? c.split('mixamorig').pop() : c; };
+
+  async function setup(model) {
+    const coach = await RealCoach.load(model);
+    const g = coach.group;
+    const meshes = [];
+    g.traverse((o) => { if (o.isSkinnedMesh) meshes.push(o); });
+    const torso = [];
+    for (const mesh of meshes) {
+      const bones = mesh.skeleton.bones;
+      const skinIndex = mesh.geometry.attributes.skinIndex, skinWeight = mesh.geometry.attributes.skinWeight;
+      if (!skinIndex) continue;
+      for (let i = 0; i < skinIndex.count; i += 2) {
+        let best = 0, bi = 0;
+        for (let k = 0; k < 4; k++) { const w = skinWeight.getComponent(i, k); if (w > best) { best = w; bi = skinIndex.getComponent(i, k); } }
+        if (best > 0.6 && TORSO.has(short(bones[bi].name))) torso.push([mesh, i]);
+      }
+    }
+    const all = meshes.flatMap((m) => m.skeleton.bones);
+    const bone = (name) => all.find((b) => short(b.name) === name);
+    const chain = { L: ['RightArm', 'RightForeArm', 'RightHand'].map(bone), R: ['LeftArm', 'LeftForeArm', 'LeftHand'].map(bone) };
+    return { coach, g, torso, chain };
+  }
+
+  // Is the point hidden behind the torso as seen from the front (+z)? Count torso vertices in a small
+  // window around it on screen that are closer to the camera by more than a margin.
+  function hidden(pt, torsoPts) {
+    let n = 0;
+    for (const v of torsoPts) if (Math.abs(v.x - pt.x) < 0.025 && Math.abs(v.y - pt.y) < 0.025 && v.z > pt.z + 0.01) n++;
+    return n >= 3;
+  }
+
+  function measure(ctx) {
+    const { g, torso, chain } = ctx;
+    g.updateMatrixWorld(true);
+    const tmp = new Vector3();
+    const torsoPts = torso.map(([mesh, i]) => { mesh.getVertexPosition(i, tmp); return tmp.clone().applyMatrix4(mesh.matrixWorld); });
+    const out = {};
+    for (const s of ['L', 'R']) {
+      const [a, f, h] = chain[s].map((b) => b.getWorldPosition(new Vector3()));
+      // Skip the first 60% of the upper arm: shoulder skin wraps its root on every rig, and an arm hanging
+      // at the side brushes the chest there, as a real one does.
+      const samples = { upper: a.clone().lerp(f, 0.6), elbow: f, forearm: f.clone().lerp(h, 0.5), hand: h };
+      out[s] = Object.entries(samples).filter(([, p]) => hidden(p, torsoPts)).map(([k]) => k);
+    }
+    return out;
+  }
+
+  window.still = async (model) => {
+    const ctx = await setup(model);
+    const res = {};
+    for (const [id, m] of Object.entries(MOVES)) {
+      for (let i = 0; i < 120; i++) ctx.coach.update(m, 0, 0, 1 / 30);
+      const r = measure(ctx);
+      if (r.L.length || r.R.length) res[id] = r;
+    }
+    return res;
+  };
+
+  window.dance = async (songId, model) => {
+    const song = songId === 'attract' ? ATTRACT : SONGS.find((s) => s.song.id === songId).song;
+    const ctx = await setup(model);
+    const dt = 1 / 30, end = songDuration(song);
+    let bad = 0, frames = 0;
+    const where = {};
+    for (let t = 0; t < end; t += dt) {
+      const target = poseAt(song, t + 0.12);
+      const beat = Math.max(0, t) / beatLength(song);
+      ctx.coach.update(target, beat - Math.floor(beat), Math.floor(beat), dt);
+      frames++;
+      if (frames % 2) continue;
+      const r = measure(ctx);
+      if (r.L.length || r.R.length) {
+        bad++;
+        const k = `${target?.name ?? 'rest'}: ${r.L.length ? 'L ' + r.L.join('+') : ''} ${r.R.length ? 'R ' + r.R.join('+') : ''}`.trim();
+        where[k] = (where[k] ?? 0) + 1;
+        if (!where.first) where.first = +t.toFixed(2); // the first bad moment, to render it
+      }
+    }
+    return { checked: Math.floor(frames / 2), bad, where };
+  };
+  window.ready = true;
+</script>

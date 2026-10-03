@@ -6,6 +6,7 @@ import type { Side } from '../pose/features.ts';
 import { CoachMotion, type CoachView } from './coach.ts';
 import { buildHat } from './hats.ts';
 import { recolor, type Look } from './outfits.ts';
+import { hiddenByTorso, measureTorso, type BodyPoint, type TorsoProfile } from './torso.ts';
 import type { Hat } from './themes.ts';
 
 const RAD = Math.PI / 180;
@@ -162,6 +163,15 @@ export class RealCoach implements CoachView {
   private readonly hands: Record<Side, HandRig>;
   /** The body the arms must stay out of, measured from the mesh; null if the model has no skinned mesh. */
   private readonly body: BodyProfile | null;
+  /**
+   * The torso as the camera sees it, in the chest bone's frame: for each height, its width and how far
+   * forward its front reaches. Catches an arm that slips behind a wide body (a skirt, a jacket), which
+   * the solid body above doesn't, since the arm isn't inside it.
+   */
+  private readonly front: TorsoProfile | null;
+  private readonly chest: Bone;
+  private readonly chestAxes: { side: Vector3; up: Vector3; fwd: Vector3 };
+  private readonly frontMargin: number;
   private readonly spine: Bone;
   private readonly hips: Bone;
   private readonly neck: Bone;
@@ -281,6 +291,13 @@ export class RealCoach implements CoachView {
     this.feet = ['LeftFoot', 'RightFoot', 'LeftToeBase', 'RightToeBase'].map((n) => tryBone(model, n)).filter((b): b is Bone => b !== null);
     this.footFloor = Math.min(...this.feet.map((f) => this.group.worldToLocal(f.getWorldPosition(new Vector3())).y));
     this.body = measureBody(model, this.hips, this.head);
+    this.chest = tryBone(model, 'Spine2') ?? tryBone(model, 'Spine1') ?? this.spine;
+    model.updateMatrixWorld(true);
+    const origin = this.chest.worldToLocal(new Vector3());
+    const axis = (v: Vector3) => this.chest.worldToLocal(v).sub(origin).normalize();
+    this.chestAxes = { side: axis(new Vector3(1, 0, 0)), up: axis(new Vector3(0, 1, 0)), fwd: axis(new Vector3(0, 0, 1)) };
+    this.front = measureFront(model, (w) => this.bodyPoint(w));
+    this.frontMargin = this.arms.L.arm.getWorldPosition(new Vector3()).distanceTo(this.arms.R.arm.getWorldPosition(new Vector3())) * 0.08;
     if (clip) {
       this.mixer = new AnimationMixer(model);
       this.mixer.clipAction(clip).play();
@@ -357,14 +374,17 @@ export class RealCoach implements CoachView {
       // towards the camera until the elbow, forearm, palm and fingertips are all clear of it.
       for (const f of CLEAR_STEPS) {
         pointBone(arm, fore, dirAt(p.dir[s] - p.bend[s] / 2, f));
-        if (!this.anyInside([arm.getWorldPosition(tmpA).lerp(fore.getWorldPosition(tmpB), 0.6), fore.getWorldPosition(new Vector3())])) break;
+        const shoulder = arm.getWorldPosition(new Vector3()), elbow = fore.getWorldPosition(new Vector3());
+        const upper = [0.4, 0.55, 0.7, 0.85, 1].map((t) => shoulder.clone().lerp(elbow, t));
+        if (!this.anyInside(upper) && !this.behindFront(upper)) break;
       }
       for (const f of CLEAR_STEPS) {
         this.restHand(s);
         pointBone(fore, hand, dirAt(p.dir[s] + p.bend[s] / 2, f));
         this.turnPalm(s, -sign);
         this.relaxHand(s, -sign);
-        if (!this.anyInside(this.handProbes(s))) break;
+        const probes = this.handProbes(s);
+        if (!this.anyInside(probes) && !this.behindFront(probes.slice(0, 3))) break;
       }
     }
     this.plantFeet();
@@ -386,6 +406,20 @@ export class RealCoach implements CoachView {
     const out = [e.clone().lerp(w, 0.4), e.clone().lerp(w, 0.75), w];
     for (const f of this.hands[s].fingers) out.push(f[f.length - 1].getWorldPosition(new Vector3()), f[Math.min(1, f.length - 1)].getWorldPosition(new Vector3()));
     return out;
+  }
+
+  /** A world point in the chest's frame: side, up, forward. */
+  private bodyPoint(world: Vector3): BodyPoint {
+    const local = this.chest.worldToLocal(world.clone());
+    const a = this.chestAxes;
+    return { side: local.dot(a.side), up: local.dot(a.up), fwd: local.dot(a.fwd) };
+  }
+
+  /** Would the camera see any of these points behind the torso? */
+  private behindFront(points: Vector3[]): boolean {
+    const front = this.front;
+    if (!front) return false;
+    return points.some((p) => hiddenByTorso(this.bodyPoint(p), front, this.frontMargin));
   }
 
   /** Is any point inside the body (torso, hips, thighs or head), as measured from the mesh at load? */
@@ -511,6 +545,26 @@ export class RealCoach implements CoachView {
  * the neck, the ellipse that holds the torso, hips and thighs (baggy trousers included), and the head as
  * a ball. Vertices belong to the part whose bone moves them most.
  */
+/** The torso's front profile (hips and spine skin) as seen from the camera, for behindFront. */
+function measureFront(model: Object3D, toBody: (world: Vector3) => BodyPoint): TorsoProfile | null {
+  const points: BodyPoint[] = [];
+  const v = new Vector3();
+  model.traverse((o) => {
+    if (!(o instanceof SkinnedMesh)) return;
+    const names = o.skeleton.bones.map((b) => b.name.replace(/^.*mixamorig/, ''));
+    const si = o.geometry.attributes.skinIndex, sw = o.geometry.attributes.skinWeight;
+    if (!si || !sw) return;
+    for (let i = 0; i < si.count; i += 2) {
+      let best = 0, w = 0;
+      for (let k = 0; k < 4; k++) if (sw.getComponent(i, k) > w) { w = sw.getComponent(i, k); best = si.getComponent(i, k); }
+      if (w < 0.5 || !/^(Hips|Spine\d?)$/.test(names[best] ?? '')) continue;
+      o.getVertexPosition(i, v);
+      points.push(toBody(o.localToWorld(v)));
+    }
+  });
+  return points.length > 50 ? measureTorso(points) : null;
+}
+
 function measureBody(model: Object3D, hipsBone: Bone, headBone: Bone): BodyProfile | null {
   model.updateMatrixWorld(true);
   const hips = hipsBone.getWorldPosition(new Vector3());
