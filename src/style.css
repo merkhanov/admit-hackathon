@@ -840,94 +840,105 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
 .lang-switch button:focus-visible { outline: 3px solid var(--grape); outline-offset: 2px; }
 
 /*
- * Title screen. The coach dances on the open stage; the name and one white menu card sit beside her
- * on wide screens and below her on tall ones. Same card, button and chip vocabulary as the lobby.
+ * Title screen: no card over the stage. The name sits at the top, the coach dances in the middle,
+ * and the start button with three short tips sits at the bottom, like a game's title screen.
  */
 .screen.title-screen {
   isolation: isolate;
-  padding: clamp(16px, 3vh, 36px) clamp(16px, 4vw, 64px);
-  justify-content: flex-end;
-  align-items: center;
-}
-.title-lang { position: absolute; top: clamp(12px, 2.4vh, 24px); right: clamp(12px, 2.4vw, 28px); z-index: 1; }
-/* One segmented control instead of three loose pills. */
-.title-lang .lang-switch {
-  margin: 0;
-  gap: 2px;
-  padding: 4px;
-  border-radius: var(--radius-pill);
-  background: var(--white);
-  box-shadow: var(--shadow-float);
-}
-.title-lang .lang-switch button { min-height: 40px; min-width: 52px; background: transparent; }
-.title-lang .lang-switch button[aria-pressed="true"] { background: var(--grape); }
-
-.title-side {
-  display: flex;
   flex-direction: column;
   align-items: center;
-  gap: clamp(14px, 2.4vh, 24px);
-  width: min(460px, 42vw);
-  margin-right: clamp(0px, 4vw, 72px);
-}
-.title-screen .logo {
-  margin: 0;
-  font-size: clamp(2.6rem, min(5.4vw, 11vh), 5.25rem);
-  line-height: 0.95;
+  justify-content: space-between;
   text-align: center;
+  padding: clamp(14px, 3vh, 32px) 16px clamp(16px, 3vh, 28px);
+}
+.title-lang { position: absolute; top: clamp(12px, 2.4vh, 24px); right: clamp(12px, 2.4vw, 28px); }
+.title-lang .lang-switch { margin: 0; }
+.title-lang .lang-switch button { background: oklch(1 0 0 / 0.75); backdrop-filter: blur(6px); }
+.title-lang .lang-switch button[aria-pressed="true"] { background: var(--grape); }
+.title-logo { margin-top: clamp(8px, 2.5vh, 40px); }
+.title-screen .logo {
+  font-size: clamp(2.2rem, min(12vw, 14vh), 7rem);
   white-space: nowrap;
   color: var(--white);
-  text-shadow: 0 5px 0 var(--grape-deep), 0 14px 30px oklch(0.27 0.07 290 / 0.35);
-  animation: title-in 520ms var(--ease-out-expo) both;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 5px 0 var(--grape-deep), 0 14px 34px oklch(0.27 0.07 290 / 0.45);
+  animation: title-in 600ms var(--ease-out-expo) both;
 }
 .title-screen .logo span { color: var(--sunshine); }
-
-.title-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 100%;
-  padding: clamp(18px, 2.6vh, 26px);
-  border-radius: var(--radius-lg);
-  background: var(--white);
-  box-shadow: var(--shadow-card);
+.tagline {
+  display: inline-block;
+  margin: 0;
+  padding: 8px 18px;
+  border-radius: var(--radius-pill);
+  background: oklch(0.27 0.07 290 / 0.55);
+  backdrop-filter: blur(6px);
+  color: var(--white);
+  font: 800 clamp(0.95rem, 1.9vw, 1.2rem)/1.3 var(--font);
+  animation: title-in 600ms 120ms var(--ease-out-expo) both;
+}
+.title-bottom { position: relative; display: flex; flex-direction: column; align-items: center; gap: 12px; width: min(720px, 100%); }
+/* A soft dark band behind the menu, so white text reads on the bright floor. */
+.screen.title-screen::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 42%;
+  background: linear-gradient(to top, oklch(0.27 0.07 290 / 0.62), oklch(0.27 0.07 290 / 0));
+  pointer-events: none;
+  z-index: -1;
+}
+.title-menu { display: flex; flex-direction: column; align-items: center; gap: 10px; width: min(560px, 100%); }
+.title-menu .cta-hero { width: 100%; }
+.title-menu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.title-menu-row .cta { width: 100%; padding: 16px 14px; font-size: clamp(1rem, 1.6vw, 1.15rem); background: oklch(1 0 0 / 0.92); animation: title-in 600ms 300ms var(--ease-out-expo) both; }
+.title-shop-btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; }
+.title-shop-btn .coin { width: 1.5em; height: 1.5em; margin-right: 6px; }
+.shop-text { display: grid; justify-items: start; gap: 2px; text-align: left; }
+.shop-text small { font: 800 0.8rem/1 var(--font); color: var(--ink-soft); white-space: nowrap; }
+.cta.cta-hero {
+  font-size: clamp(1.25rem, 2.6vw, 1.6rem);
+  padding: 22px clamp(28px, 5vw, 56px);
+  animation: title-in 600ms 220ms var(--ease-out-expo) both, hero-pulse 2.4s 1s ease-in-out infinite;
+}
+.title-tips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.title-tips li {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  background: oklch(1 0 0 / 0.82);
+  backdrop-filter: blur(6px);
   color: var(--ink);
-  pointer-events: auto;
-  animation: title-in 520ms 80ms var(--ease-out-expo) both;
+  font: 800 0.85rem/1.25 var(--font);
+  box-shadow: var(--shadow-float);
 }
-.title-tagline { margin: 0 0 2px; text-align: center; font: 800 1.05rem/1.35 var(--font); color: var(--ink); text-wrap: balance; }
-.title-card .cta { width: 100%; }
-.cta.cta-hero { padding: 20px 24px; font-size: 1.4rem; }
-.title-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.title-row .cta { min-height: 60px; padding: 10px 12px; font-size: 1rem; line-height: 1.15; }
-.title-shop-btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
-.title-shop-btn .coin { flex: none; width: 1.6em; height: 1.6em; margin: 0; }
-.shop-text { display: grid; justify-items: start; gap: 3px; text-align: left; }
-.shop-text small { font: 800 0.78rem/1 var(--font); color: var(--ink-soft); white-space: nowrap; }
-/* Three short facts as one quiet paragraph, and the credit under a hairline: the card's small print. */
-.title-tips { margin: 2px 0 0; text-align: center; font: 700 0.82rem/1.45 var(--font); color: var(--ink-soft); text-wrap: balance; }
-.title-screen .credit { margin: 0; padding-top: 10px; border-top: 1px solid oklch(0.92 0.02 300); text-align: center; font: 700 0.74rem/1.2 var(--font); color: var(--ink-soft); }
-@keyframes title-in { from { opacity: 0; transform: translateY(12px); } }
-@media (prefers-reduced-motion: reduce) {
-  .title-screen .logo, .title-card { animation: none; }
-}
-
-/* Tall screens (phones, portrait tablets): the name on top, the coach in the middle, the card at the bottom. */
+.title-screen .credit { margin: 0; color: oklch(1 0 0 / 0.9); font: 800 0.8rem/1.2 var(--font); text-shadow: 0 1px 4px oklch(0.27 0.07 290 / 0.8); }
+/* The tagline sits under the name on wide screens and above the menu on tall ones, wherever the coach isn't. */
+.title-logo { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.tagline-bottom { display: none !important; }
 @media (max-aspect-ratio: 1/1) {
-  .screen.title-screen { flex-direction: column; justify-content: flex-start; gap: 10px; padding: 12px 12px 14px; }
-  .title-side { display: contents; }
-  .title-screen .logo { margin-top: 64px; font-size: clamp(2.2rem, 12vw, 4.5rem); }
-  .title-card { width: min(520px, 100%); margin-top: auto; padding: 16px; gap: 10px; }
-  .title-tagline { font-size: 0.95rem; }
-  .cta.cta-hero { padding: 17px 20px; font-size: 1.25rem; }
-  .title-row .cta { min-height: 54px; font-size: 0.95rem; }
-  .title-tips { font-size: 0.74rem; }
-  .title-screen .credit { padding-top: 8px; }
+  .tagline-top { display: none !important; }
+  .tagline-bottom { display: inline-block !important; }
 }
-/* Short phones (iPhone SE): the tagline and the credit give the coach the room. */
-@media (max-aspect-ratio: 1/1) and (max-height: 640px) {
-  .title-tagline, .title-screen .credit { display: none; }
-  .title-screen .logo { margin-top: 56px; }
+/* Finger-sized controls on the title screen. */
+.title-lang .lang-switch button { min-height: 44px; min-width: 52px; }
+@keyframes title-in { from { opacity: 0; transform: translateY(14px) scale(0.97); } }
+@keyframes hero-pulse { 50% { box-shadow: 0 6px 0 var(--grape-deep), 0 0 0 10px oklch(0.53 0.21 300 / 0.18), var(--shadow-float); } }
+@media (max-width: 720px) {
+  .title-logo { margin-top: 52px; }
+  .cta.cta-hero { width: 100%; padding: 18px 20px; }
+  .title-menu-row .cta { padding: 12px 8px; font-size: 0.95rem; white-space: normal; }
+  /* The tips become one quiet line of text, so the menu leaves the coach room. */
+  .title-tips { gap: 2px 10px; }
+  .title-tips li { padding: 0; background: none; box-shadow: none; backdrop-filter: none; color: var(--white); font-size: 0.75rem; text-shadow: 0 1px 4px oklch(0.27 0.07 290 / 0.8); }
+  .title-screen .tagline { font-size: 0.9rem; padding: 6px 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cta.cta-hero { animation: none; }
+}
+/* Short phones (iPhone SE): the tips say enough, so the tagline gives the coach the room. */
+@media (max-width: 720px) and (max-height: 640px) {
+  .title-screen .tagline, .title-screen .credit { display: none !important; }
+  .title-bottom { gap: 8px; }
+  .title-tips { gap: 6px; }
 }
 
 /* ---------- Clothes shop ---------- */
@@ -1035,10 +1046,8 @@ button.song-card:hover { border-color: oklch(0.8 0.1 300); transform: translateY
   .shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 /* While shopping the screen is a fitting room: just the coach and the shop. */
-.title-screen:has(~ .shop) .title-side,
-.title-screen:has(~ .shop) .logo,
-.title-screen:has(~ .shop) .title-card,
-.title-screen:has(~ .shop) .credit,
+.title-screen:has(~ .shop) .title-logo,
+.title-screen:has(~ .shop) .title-bottom,
 .lobby:has(~ .shop) .lobby-card { visibility: hidden; }
 /* Phones: a shorter sheet without the explanation, so the coach's outfit shows above it. */
 @media (max-width: 720px) {

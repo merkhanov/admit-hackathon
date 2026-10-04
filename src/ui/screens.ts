@@ -312,25 +312,25 @@ function podiumHtml(): string {
  * to do below, like a game's title screen rather than a page of text.
  */
 function introHtml(demo: boolean, w: Wallet): string {
-  // Three short facts read as one quiet paragraph: separators can't strand at the start of a line.
-  const tips = (['intro.tipDistance', 'intro.tipHands', 'intro.tipPrivate'] as const).map((k) => `${esc(t(k))}.`).join(' ');
-  // The coach dances on the open stage; everything to read or press lives in one card beside her
-  // (below her on tall screens), so nothing floats over the busy floor.
+  const tips = (['intro.tipDistance', 'intro.tipHands', 'intro.tipPrivate'] as const).map((k) => `<li>${esc(t(k))}</li>`).join('');
   return `
   <section class="screen intro title-screen">
     <div class="title-lang">${langSwitchHtml()}</div>
-    <div class="title-side">
+    <header class="title-logo">
       <h1 class="logo">Motion <span>Dance</span></h1>
-      <nav class="title-card" aria-label="${esc(t('menu'))}">
-        <p class="title-tagline">${esc(t('intro.tagline'))}</p>
+      <p class="tagline tagline-top">${esc(t('intro.tagline'))}</p>
+    </header>
+    <div class="title-bottom">
+      <p class="tagline tagline-bottom">${esc(t('intro.tagline'))}</p>
+      <nav class="title-menu" aria-label="${esc(t('menu'))}">
         <button class="cta cta-hero" id="start-btn" type="button">${t(demo ? 'intro.demo' : 'intro.start')}</button>
-        <div class="title-row">
+        <div class="title-menu-row">
           <button class="cta cta-secondary" id="friends-btn" type="button">${t('intro.friends')}</button>
           <button class="cta cta-secondary title-shop-btn" id="shop-open" type="button" aria-haspopup="dialog"><i class="coin" aria-hidden="true"></i><span class="shop-text"><b>${esc(t('shop.open'))}</b><small>${esc(t('shop.coins', { n: w.coins }))}</small></span></button>
         </div>
-        <p class="title-tips">${tips}</p>
-        <p class="credit">${esc(t('intro.credit'))}</p>
       </nav>
+      <ul class="title-tips">${tips}</ul>
+      <p class="credit">${esc(t('intro.credit'))}</p>
     </div>
   </section>`;
 }
